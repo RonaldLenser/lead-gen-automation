@@ -1,0 +1,2941 @@
+{
+  "name": "Scrape Sources",
+  "nodes": [
+    {
+      "id": "bd5c9878-2525-41f6-9538-e531484261d8",
+      "name": "Schedule: Daily 5AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 5,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c5eb8d87-f1cf-4c69-ac79-5664432d71a4",
+      "name": "Build Search Matrix",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        768
+      ],
+      "parameters": {
+        "jsCode": "// Test mode: when started from the Manual Run trigger, run only one\n// Indeed search and one Yelp search with a 5-item cap each.\nlet testMode = false;\ntry { $('Manual Run').first(); testMode = true; } catch (e) {}\nif (testMode) {\n  // URGENT one-off run (2026-09-24): Maps branch only, all 18 contractor terms\n  // for ONE location per execution (max 30 places/search). LOC_INDEX per run.\n  const urgentTerms = ['general contractor', 'home remodeling', 'roofing contractor', 'HVAC contractor', 'kitchen remodeling', 'bathroom remodeling', 'basement finishing', 'deck builder', 'fence contractor', 'concrete contractor', 'masonry contractor', 'paving contractor', 'excavation contractor', 'siding contractor', 'plumbing contractor', 'electrical contractor', 'painting contractor', 'flooring contractor'];\n  const LOCATIONS = ['Fredericksburg VA', 'Stafford VA', 'Spotsylvania VA', 'King George VA', 'Culpeper VA', 'Warrenton VA', 'Woodbridge VA', 'Manassas VA'];\n  const LOC_INDEX = 0;\n  const loc = LOCATIONS[LOC_INDEX];\n  // ONE-SEARCH live test mode (restore target): single term, single location.\n  const SINGLE_TEST = false;\n  if (SINGLE_TEST) {\n    return [{ json: { branch: 'maps', searchTerm: 'roofing contractor', location: 'Fredericksburg VA', maxItems: 30 } }];\n  }\n  // Full run: all 18 contractor terms for ONE location (LOC_INDEX), each\n  // executed as its own async Apify run, one at a time.\n  return urgentTerms.map(t => ({ json: { branch: 'maps', searchTerm: t, location: loc, maxItems: 30 } }));\n}\nconst out = [];\nconst positions = ['receptionist', 'front desk', 'dispatcher', 'office manager'];\nconst jobLocations = ['Fredericksburg, VA', 'Manassas, VA'];\nfor (const p of positions) {\n  for (const l of jobLocations) {\n    out.push({ json: { branch: 'jobs', position: p, location: l } });\n  }\n}\n// Maps: rotating slice of the term x city matrix. The offset persists in\n// workflow static data so each run continues where the last stopped; when the\n// full matrix is done it wraps and starts over. Cap: 1500 Maps places per run.\nconst MAPS_PER_SEARCH = 40;\nconst MAPS_RUN_CAP = 1500;\nconst mapsTerms = ['general contractor', 'home remodeling', 'roofing contractor', 'HVAC contractor', 'kitchen remodeling', 'bathroom remodeling', 'basement finishing', 'deck builder', 'fence contractor', 'concrete contractor', 'masonry contractor', 'paving contractor', 'excavation contractor', 'siding contractor', 'plumbing contractor', 'electrical contractor', 'painting contractor', 'flooring contractor'];\nconst mapsLocations = ['Fredericksburg VA', 'Stafford VA', 'Spotsylvania VA', 'King George VA', 'Culpeper VA', 'Warrenton VA', 'Woodbridge VA', 'Manassas VA', 'Dumfries VA', 'Leesburg VA', 'Sterling VA', 'Herndon VA', 'Chantilly VA', 'Fairfax VA', 'Springfield VA', 'Alexandria VA', 'Orange VA', 'Louisa VA', 'Bowling Green VA', 'Ashland VA', 'Front Royal VA'];\nconst matrix = [];\nfor (const t of mapsTerms) for (const l of mapsLocations) matrix.push({ t, l });\nconst sd = $getWorkflowStaticData('global');\nlet offset = typeof sd.matrixOffset === 'number' ? sd.matrixOffset : 0;\nif (offset >= matrix.length) offset = 0;\nconst maxSearches = Math.floor(MAPS_RUN_CAP / MAPS_PER_SEARCH);\nlet used = 0;\nlet mi = offset;\nwhile (used < maxSearches) {\n  const m = matrix[mi % matrix.length];\n  out.push({ json: { branch: 'maps', searchTerm: m.t, location: m.l, maxItems: MAPS_PER_SEARCH } });\n  used++;\n  mi++;\n}\nsd.matrixOffset = (offset + used) % matrix.length;\n// Yelp branch (unchanged budget): fills up to 600 results after Maps.\nconst TOTAL_MAX_RESULTS = 600;\nlet usedResults = 0;\nconst yelpTerms = ['general contractor', 'home remodeling', 'roofing', 'HVAC', 'kitchen and bath remodeling', 'basement finishing', 'handyman', 'plumbing', 'electrician', 'painting contractor', 'deck builder', 'fence contractor', 'concrete contractor', 'flooring contractor'];\nconst yelpLocations = ['Fredericksburg VA', 'Stafford VA', 'Spotsylvania VA', 'King George VA', 'Culpeper VA', 'Woodbridge VA', 'Manassas VA'];\nouterYelp:\nfor (const t of yelpTerms) {\n  for (const l of yelpLocations) {\n    const per = Math.min(15, TOTAL_MAX_RESULTS - usedResults);\n    if (per <= 0) break outerYelp;\n    usedResults += per;\n    out.push({ json: { branch: 'yelp', searchTerm: t, location: l, maxItems: per } });\n  }\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "dca928fe-f01e-414a-b401-d5931388167f",
+      "name": "Route Branch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        272,
+        768
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "branch-maps",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "maps",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "maps"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "branch-jobs",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "jobs",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "jobs"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "branch-yelp",
+                    "leftValue": "={{ $json.branch }}",
+                    "rightValue": "yelp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "yelp"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6be6f6aa-c475-41bf-8c2c-34da6b9bbded",
+      "name": "Scrape Google Maps Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        1056
+      ],
+      "parameters": {
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "options": {
+          "timeout": 60000
+        },
+        "url": "https://api.apify.com/v2/acts/compass~crawler-google-places/runs?memory=2048",
+        "jsonBody": "={{ JSON.stringify({\n        searchStringsArray: [$json.searchTerm],\n        locationQuery: $json.location,\n        maxCrawledPlacesPerSearch: $json.maxItems || 30,\n        website: 'withoutWebsite',\n        skipClosedPlaces: true,\n        language: 'en',\n        maxReviews: 0,\n        maxImages: 0,\n        scrapeContacts: false,\n        scrapePlaceDetailPage: false,\n        proxyConfiguration: { useApifyProxy: true }\n      }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "6c26edfb-053e-41b5-9ede-15657c708191",
+      "name": "Wait For Actor",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        384,
+        752
+      ],
+      "parameters": {
+        "amount": 20,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "7b2d9171-bf84-4dbb-8b0b-ec425eb2539f",
+      "name": "Check Actor Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        608,
+        864
+      ],
+      "parameters": {
+        "method": "GET",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "options": {
+          "timeout": 60000
+        },
+        "url": "={{ 'https://api.apify.com/v2/actor-runs/' + ($json.data && $json.data.id ? $json.data.id : $json.id || '') }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "1266ce0a-e49b-447d-b91f-b25812eefa5e",
+      "name": "Is Actor Done",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        832,
+        864
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "actor-done",
+              "leftValue": "={{ ['SUCCEEDED','FAILED','TIMED-OUT','ABORTED'].includes($json.data && $json.data.status ? $json.data.status : $json.status) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "d1361c93-55f4-4425-bbec-0beb3b014374",
+      "name": "Fetch Actor Dataset",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1056,
+        1056
+      ],
+      "parameters": {
+        "method": "GET",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "options": {
+          "timeout": 60000
+        },
+        "url": "={{ 'https://api.apify.com/v2/actor-runs/' + ($json.data && $json.data.id ? $json.data.id : $json.id || '') + '/dataset/items?format=json&clean=true' }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "1ac7d733-416e-4ff3-b4a6-ef9bb56502cf",
+      "name": "Shape Maps Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        1056
+      ],
+      "parameters": {
+        "jsCode": "// Prefilter (shared with Yelp): listed_website empty or only a\n// social/directory domain, 10+ reviews, rating >= 3.8, not permanently closed,\n// category is a trade. Surviving candidates go to the Verification tab.\nconst fakeSiteRe = /facebook\\.com|instagram\\.com|yelp\\.com|nextdoor\\.com|linktr\\.ee|sites\\.google\\.com|business\\.site|angi\\.com|homeadvisor\\.com|thumbtack\\.com|houzz\\.com|bbb\\.org/i;\nconst beautyRe = /salon|spa|nail|beauty|massage|barber|lash|med spa|tanning/i;\nconst tradeRe = /contractor|handyman|remodel|roof|siding|gutter|window|hvac|plumb|electric|paint|drywall|floor|tile|deck|fenc|concrete|masonry|paving|excavat|landscap|hardscap|tree|pressure wash|garage door|insulat|waterproof|builder|construction|home improvement|carpent|kitchen|bath|basement/i;\nconst items = $input.all().filter(i => Object.keys(i.json).length > 0);\nconst out = [];\nfor (const item of items) {\n  const j = item.json;\n  const name = j.title || j.name || '';\n  if (!name) continue;\n  if (j.permanentlyClosed === true) {\n    console.log('DROPPED Maps lead (permanently closed): \"' + name + '\"');\n    continue;\n  }\n  const category = j.categoryName || '';\n  if (beautyRe.test(category) || beautyRe.test(name)) {\n    console.log('DROPPED Maps lead (beauty/salon category): \"' + name + '\" — category: ' + category);\n    continue;\n  }\n  if (!tradeRe.test(category)) {\n    console.log('DROPPED Maps lead (not a trade): \"' + name + '\" — category: ' + category);\n    continue;\n  }\n  const reviews = j.reviewsCount != null ? Number(j.reviewsCount) : null;\n  const rating = j.totalScore != null ? Number(j.totalScore) : null;\n  if (reviews == null || !isFinite(reviews)) {\n    console.log('DROPPED Maps lead (no review count): \"' + name + '\"');\n    continue;\n  }\n  if (reviews < 10 || rating == null || !isFinite(rating) || rating < 3.8) {\n    console.log('DROPPED Maps lead (below quality threshold): \"' + name + '\" — rating: ' + rating + ', reviews: ' + reviews);\n    continue;\n  }\n  const website = String(j.website || '').trim();\n  if (website && !fakeSiteRe.test(website)) {\n    console.log('DROPPED Maps lead (has a real website): \"' + name + '\" — ' + website);\n    continue;\n  }\n  const stripPhone = (ph) => {\n    let d = String(ph || '').replace(/\\D/g, '');\n    if (d.length === 11 && d.startsWith('1')) d = d.slice(1);\n    return d;\n  };\n  // Google Business Profile booking/reservation/order/menu/appointment links.\n  const gbp = [];\n  if (j.menuUrl) gbp.push(j.menuUrl);\n  if (j.reserveTableUrl) gbp.push(j.reserveTableUrl);\n  if (Array.isArray(j.orderOnlineLinks)) for (const l of j.orderOnlineLinks) gbp.push(typeof l === 'string' ? l : (l.url || ''));\n  if (Array.isArray(j.bookingLinks)) for (const l of j.bookingLinks) gbp.push(typeof l === 'string' ? l : (l.url || ''));\n  if (j.appointmentUrl) gbp.push(j.appointmentUrl);\n  // Address fields: use the actor's address/city/state/url fields, then fall\n  // back to parsing the city out of the address string, then to the searched\n  // location name, so city is never blank.\n  const address = String(j.address || j.street || '').trim();\n  let city = String(j.city || '').trim();\n  if (!city && address) {\n    const parts = address.split(',').map(s => s.trim()).filter(Boolean);\n    if (parts.length >= 2) city = parts[parts.length >= 3 ? parts.length - 2 : parts.length - 1].replace(/s+VA\b.*$/i, '').trim();\n  }\n  if (!city) {\n    let searchedLoc = '';\n    try { searchedLoc = $('Route Branch').item.json.location || ''; } catch (e) {}\n    city = String(searchedLoc).replace(/s+VA\b.*$/i, '').replace(/,.*$/, '').trim();\n  }\n  out.push({ json: {\n    business_name: name,\n    category,\n    owner: '',\n    city,\n    state: String(j.state || 'VA').trim() || 'VA',\n    address,\n    phone: stripPhone(j.phone || j.phoneUnformatted || ''),\n    email: j.email || '',\n    website,\n    listed_website: website,\n    maps_url: j.url || '',\n    gbp_links: gbp.filter(Boolean).join(' '),\n    rating: rating != null ? String(rating) : '',\n    reviews: reviews != null ? String(reviews) : '',\n    source: 'maps',\n  } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "b913991f-4569-4b24-a369-fd13bc477f0e",
+      "name": "Combine Leads",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        768
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "650c9960-816c-42c9-9017-c64638d08075",
+      "name": "Add Dedupe Keys",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        672
+      ],
+      "parameters": {
+        "jsCode": "const stripPhone = (p) => {\n  let d = String(p || '').replace(/\\D/g, '');\n  if (d.length === 11 && d.startsWith('1')) d = d.slice(1);\n  return d;\n};\nconst out = [];\nconst seen = new Set();\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (Object.keys(j).length === 0) continue;\n  const nameKey = String(j.business_name || '').toLowerCase().replace(/\\s+/g, ' ').trim();\n  const phoneKey = stripPhone(j.phone);\n  const emailKey = String(j.email || '').toLowerCase().trim();\n  const runKey = nameKey + '|' + (phoneKey || emailKey);\n  if (seen.has(runKey)) continue;\n  seen.add(runKey);\n  j.phone = phoneKey; // digits only, RAW text write\n  j.nameKey = nameKey;\n  j.phoneKey = phoneKey;\n  j.emailKey = emailKey;\n  out.push(item);\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "9333f2f0-2123-4fc0-bac6-4999818610d1",
+      "name": "Read Leads Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        800,
+        672
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {}
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "a6894ecc-d8f7-4d76-94c1-225efecc4719",
+      "name": "Read Call List Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1024,
+        672
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        },
+        "options": {}
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "d504177e-81a2-4deb-8bd7-7bd329042772",
+      "name": "Read Verification Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        800,
+        1248
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Verification"
+        },
+        "options": {}
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "9a74f44f-fdf0-45e0-846f-0e7a6a074835",
+      "name": "Dedupe Against Sheets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        672
+      ],
+      "parameters": {
+        "jsCode": "const stripPhone = (p) => {\n  let d = String(p || '').replace(/\\D/g, '');\n  if (d.length === 11 && d.startsWith('1')) d = d.slice(1);\n  return d;\n};\nconst normName = (n) => String(n || '').toLowerCase().replace(/\\s+/g, ' ').trim();\nconst normCity = (c) => String(c || '').toLowerCase().replace(/\\s+/g, ' ').trim();\nconst namePhone = new Set();\nconst phones = new Set();\nconst nameCity = new Set();\nconst emails = new Set();\nlet verification = [];\ntry { verification = $('Read Verification Tab').all(); } catch (e) {}\nconst leads = $('Read Leads Tab').all();\nconst calls = $('Read Call List Tab').all();\nfor (const row of [...leads, ...calls, ...verification]) {\n  const j = row.json;\n  const nk = normName(j.business_name);\n  const pk = stripPhone(j.phone);\n  const ck = normCity(j.city);\n  if (nk && pk) namePhone.add(nk + '|' + pk);\n  if (pk) phones.add(pk);\n  if (nk && ck) nameCity.add(nk + '|' + ck);\n  const ek = String(j.email || '').toLowerCase().trim();\n  if (ek) emails.add(ek);\n}\n// Scraped items come from Add Dedupe Keys — the two sheet reads above replace\n// this node's own input with sheet rows, so $input cannot be used here.\nconst out = [];\nfor (const item of $('Add Dedupe Keys').all()) {\n  const j = item.json;\n  if (Object.keys(j).length === 0) continue;\n  const src = j.source;\n  if (src === 'maps' || src === 'yelp') {\n    // Verification candidates: dedupe by phone digits and by lowercased name+city.\n    if (j.phoneKey && phones.has(j.phoneKey)) { item.json.skip_reason = 'duplicate phone'; continue; }\n    const ck = normCity(j.city);\n    if (j.nameKey && ck && nameCity.has(j.nameKey + '|' + ck)) { item.json.skip_reason = 'duplicate name+city'; continue; }\n  } else {\n    if (j.emailKey && emails.has(j.emailKey)) { item.json.skip_reason = 'duplicate email'; continue; }\n    if (j.nameKey && j.phoneKey && namePhone.has(j.nameKey + '|' + j.phoneKey)) { item.json.skip_reason = 'duplicate name+phone'; continue; }\n  }\n  item.json.skip_reason = '';\n  out.push(item);\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "cd1d378e-0b4e-4d14-b252-c6bb071759d8",
+      "name": "Dedupe Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1472,
+        672
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "8e4a4cf5-5b4b-4f41-8df4-cdeb2d6e974f",
+      "name": "Route by Source",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1056,
+        864
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "src-verification",
+                    "leftValue": "maps,yelp",
+                    "rightValue": "={{ $json.source }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "verification"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "src-indeed",
+                    "leftValue": "={{ $json.source }}",
+                    "rightValue": "indeed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "indeed"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "drop"
+        }
+      }
+    },
+    {
+      "id": "bf523cc5-217d-4285-8be0-af59ff5c7260",
+      "name": "Prep Verification Rows",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1328,
+        1536
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "business_name",
+              "name": "business_name",
+              "value": "={{ $json.business_name }}",
+              "type": "string"
+            },
+            {
+              "id": "category",
+              "name": "category",
+              "value": "={{ $json.category }}",
+              "type": "string"
+            },
+            {
+              "id": "owner",
+              "name": "owner",
+              "value": "={{ $json.owner || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "phone",
+              "name": "phone",
+              "value": "={{ $json.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "email",
+              "name": "email",
+              "value": "={{ $json.email || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "address",
+              "name": "address",
+              "value": "={{ $json.address || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "city",
+              "name": "city",
+              "value": "={{ $json.city }}",
+              "type": "string"
+            },
+            {
+              "id": "state",
+              "name": "state",
+              "value": "={{ $json.state || 'VA' }}",
+              "type": "string"
+            },
+            {
+              "id": "rating",
+              "name": "rating",
+              "value": "={{ $json.rating }}",
+              "type": "string"
+            },
+            {
+              "id": "reviews",
+              "name": "reviews",
+              "value": "={{ $json.reviews }}",
+              "type": "string"
+            },
+            {
+              "id": "maps_url",
+              "name": "maps_url",
+              "value": "={{ $json.maps_url || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "listed_website",
+              "name": "listed_website",
+              "value": "={{ $json.listed_website || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "gbp_links",
+              "name": "gbp_links",
+              "value": "={{ $json.gbp_links || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "source",
+              "name": "source",
+              "value": "={{ $json.source }}",
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "value": "pending",
+              "type": "string"
+            },
+            {
+              "id": "confidence",
+              "name": "confidence",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "reject_reason",
+              "name": "reject_reason",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "website_found",
+              "name": "website_found",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "verification_notes",
+              "name": "verification_notes",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "added_date",
+              "name": "added_date",
+              "value": "={{ $today.setZone('America/New_York').toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "checked_date",
+              "name": "checked_date",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d6c773bf-bb46-4869-82d1-091f9b6103da",
+      "name": "Append to Verification",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1552,
+        1344
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Verification"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.business_name }}",
+            "category": "={{ $json.category }}",
+            "owner": "={{ $json.owner }}",
+            "phone": "={{ $json.phone }}",
+            "email": "={{ $json.email }}",
+            "address": "={{ $json.address }}",
+            "city": "={{ $json.city }}",
+            "state": "={{ $json.state }}",
+            "rating": "={{ $json.rating }}",
+            "reviews": "={{ $json.reviews }}",
+            "maps_url": "={{ $json.maps_url }}",
+            "listed_website": "={{ $json.listed_website }}",
+            "gbp_links": "={{ $json.gbp_links }}",
+            "source": "={{ $json.source }}",
+            "status": "={{ $json.status }}",
+            "confidence": "={{ $json.confidence }}",
+            "reject_reason": "={{ $json.reject_reason }}",
+            "website_found": "={{ $json.website_found }}",
+            "verification_notes": "={{ $json.verification_notes }}",
+            "added_date": "={{ $json.added_date }}",
+            "checked_date": "={{ $json.checked_date }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "address",
+              "displayName": "address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "state",
+              "displayName": "state",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "maps_url",
+              "displayName": "maps_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "listed_website",
+              "displayName": "listed_website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "gbp_links",
+              "displayName": "gbp_links",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reject_reason",
+              "displayName": "reject_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website_found",
+              "displayName": "website_found",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "verification_notes",
+              "displayName": "verification_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "checked_date",
+              "displayName": "checked_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
+    },
+    {
+      "id": "31b28a6c-8eb5-44a8-a4ed-aadb1f5230f2",
+      "name": "Route by Contact Info",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1056,
+        528
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "has-email",
+                    "leftValue": "={{ $json.email }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "has_email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "needs-enrich",
+                    "leftValue": "={{ $json.website }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "enrich"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "no-email-but-phone",
+                    "leftValue": "={{ $json.phone }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "phone_only"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "drop"
+        }
+      }
+    },
+    {
+      "id": "f54dd86c-d7f7-4816-9431-1fb26c714ef0",
+      "name": "Prep Leads Rows",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1440,
+        448
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "business_name",
+              "name": "business_name",
+              "value": "={{ $json.business_name }}",
+              "type": "string"
+            },
+            {
+              "id": "category",
+              "name": "category",
+              "value": "={{ $json.category }}",
+              "type": "string"
+            },
+            {
+              "id": "city",
+              "name": "city",
+              "value": "={{ $json.city }}",
+              "type": "string"
+            },
+            {
+              "id": "phone",
+              "name": "phone",
+              "value": "={{ $json.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "email",
+              "name": "email",
+              "value": "={{ $json.email }}",
+              "type": "string"
+            },
+            {
+              "id": "website",
+              "name": "website",
+              "value": "={{ $json.website }}",
+              "type": "string"
+            },
+            {
+              "id": "rating",
+              "name": "rating",
+              "value": "={{ $json.rating }}",
+              "type": "string"
+            },
+            {
+              "id": "reviews",
+              "name": "reviews",
+              "value": "={{ $json.reviews }}",
+              "type": "string"
+            },
+            {
+              "id": "facebook",
+              "name": "facebook",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "instagram",
+              "name": "instagram",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "last_sent",
+              "name": "last_sent",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "added_date",
+              "name": "added_date",
+              "value": "={{ $today.setZone('America/New_York').toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "thread_id",
+              "name": "thread_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "message_id",
+              "name": "message_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "site_status",
+              "name": "site_status",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "site_notes",
+              "name": "site_notes",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "skip_reason",
+              "name": "skip_reason",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "source",
+              "name": "source",
+              "value": "={{ $json.source }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8bb15251-3e04-4186-b699-16a515509df1",
+      "name": "Append to Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1808,
+        448
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.business_name }}",
+            "category": "={{ $json.category }}",
+            "city": "={{ $json.city }}",
+            "phone": "={{ $json.phone }}",
+            "email": "={{ $json.email }}",
+            "website": "={{ $json.website }}",
+            "rating": "={{ $json.rating }}",
+            "reviews": "={{ $json.reviews }}",
+            "facebook": "={{ $json.facebook }}",
+            "instagram": "={{ $json.instagram }}",
+            "status": "={{ $json.status }}",
+            "last_sent": "={{ $json.last_sent }}",
+            "added_date": "={{ $json.added_date }}",
+            "thread_id": "={{ $json.thread_id }}",
+            "message_id": "={{ $json.message_id }}",
+            "site_status": "={{ $json.site_status }}",
+            "site_notes": "={{ $json.site_notes }}",
+            "skip_reason": "={{ $json.skip_reason }}",
+            "source": "={{ $json.source }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "facebook",
+              "displayName": "facebook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instagram",
+              "displayName": "instagram",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_sent",
+              "displayName": "last_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "site_status",
+              "displayName": "site_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "site_notes",
+              "displayName": "site_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "skip_reason",
+              "displayName": "skip_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
+    },
+    {
+      "id": "0408dc23-d3eb-44a9-ad1a-0a53245adafb",
+      "name": "Cap Enrichment (Test Mode)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        1152
+      ],
+      "parameters": {
+        "jsCode": "// Maps and Yelp leads never reach here (they have no real website by the keep\n// rule), but belt-and-braces: skip website contact-scraping for them — there is\n// no site to crawl. Also cap enrichment at 10 websites on manual test runs.\nlet testMode = false;\ntry { $('Manual Run').first(); testMode = true; } catch (e) {}\nconst items = $input.all().filter(i => i.json.source === 'indeed');\nreturn testMode ? items.slice(0, 10) : items;"
+      }
+    },
+    {
+      "id": "8c78006e-6bb5-4276-a47b-319080a670f4",
+      "name": "Enrich Complete",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1776,
+        960
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "8f845fce-393b-4814-908e-be3d86b3bd3a",
+      "name": "Route Enriched",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1808,
+        832
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "enriched-email",
+                    "leftValue": "={{ $json.email }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "has_email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "enriched-phone",
+                    "leftValue": "={{ $json.phone }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "phone_only"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "drop"
+        }
+      }
+    },
+    {
+      "id": "06ed4bf0-d095-4d56-b559-5e1b12bb9a21",
+      "name": "Prep Leads Rows (Enriched)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2032,
+        544
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "business_name",
+              "name": "business_name",
+              "value": "={{ $json.business_name }}",
+              "type": "string"
+            },
+            {
+              "id": "category",
+              "name": "category",
+              "value": "={{ $json.category }}",
+              "type": "string"
+            },
+            {
+              "id": "city",
+              "name": "city",
+              "value": "={{ $json.city }}",
+              "type": "string"
+            },
+            {
+              "id": "phone",
+              "name": "phone",
+              "value": "={{ $json.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "email",
+              "name": "email",
+              "value": "={{ $json.email }}",
+              "type": "string"
+            },
+            {
+              "id": "website",
+              "name": "website",
+              "value": "={{ $json.website }}",
+              "type": "string"
+            },
+            {
+              "id": "rating",
+              "name": "rating",
+              "value": "={{ $json.rating }}",
+              "type": "string"
+            },
+            {
+              "id": "reviews",
+              "name": "reviews",
+              "value": "={{ $json.reviews }}",
+              "type": "string"
+            },
+            {
+              "id": "facebook",
+              "name": "facebook",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "instagram",
+              "name": "instagram",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "status",
+              "name": "status",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "last_sent",
+              "name": "last_sent",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "added_date",
+              "name": "added_date",
+              "value": "={{ $today.setZone('America/New_York').toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "thread_id",
+              "name": "thread_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "message_id",
+              "name": "message_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "site_status",
+              "name": "site_status",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "site_notes",
+              "name": "site_notes",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "skip_reason",
+              "name": "skip_reason",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "source",
+              "name": "source",
+              "value": "={{ $json.source }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7addcf62-48ac-49e4-a679-d0ea1d3a2e5c",
+      "name": "Append to Leads (Enriched)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2256,
+        544
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.business_name }}",
+            "category": "={{ $json.category }}",
+            "city": "={{ $json.city }}",
+            "phone": "={{ $json.phone }}",
+            "email": "={{ $json.email }}",
+            "website": "={{ $json.website }}",
+            "rating": "={{ $json.rating }}",
+            "reviews": "={{ $json.reviews }}",
+            "facebook": "={{ $json.facebook }}",
+            "instagram": "={{ $json.instagram }}",
+            "status": "={{ $json.status }}",
+            "last_sent": "={{ $json.last_sent }}",
+            "added_date": "={{ $json.added_date }}",
+            "thread_id": "={{ $json.thread_id }}",
+            "message_id": "={{ $json.message_id }}",
+            "site_status": "={{ $json.site_status }}",
+            "site_notes": "={{ $json.site_notes }}",
+            "skip_reason": "={{ $json.skip_reason }}",
+            "source": "={{ $json.source }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "facebook",
+              "displayName": "facebook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instagram",
+              "displayName": "instagram",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_sent",
+              "displayName": "last_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "site_status",
+              "displayName": "site_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "site_notes",
+              "displayName": "site_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "skip_reason",
+              "displayName": "skip_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
+    },
+    {
+      "id": "b3f4e04b-803a-463a-b512-f0084589d581",
+      "name": "Prep Call List Rows (Enriched)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2032,
+        928
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "business_name",
+              "name": "business_name",
+              "value": "={{ $json.business_name }}",
+              "type": "string"
+            },
+            {
+              "id": "category",
+              "name": "category",
+              "value": "={{ $json.category }}",
+              "type": "string"
+            },
+            {
+              "id": "city",
+              "name": "city",
+              "value": "={{ $json.city }}",
+              "type": "string"
+            },
+            {
+              "id": "phone",
+              "name": "phone",
+              "value": "={{ $json.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "website",
+              "name": "website",
+              "value": "={{ $json.website }}",
+              "type": "string"
+            },
+            {
+              "id": "rating",
+              "name": "rating",
+              "value": "={{ $json.rating }}",
+              "type": "string"
+            },
+            {
+              "id": "reviews",
+              "name": "reviews",
+              "value": "={{ $json.reviews }}",
+              "type": "string"
+            },
+            {
+              "id": "added_date",
+              "name": "added_date",
+              "value": "={{ $today.setZone('America/New_York').toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "source",
+              "name": "source",
+              "value": "={{ $json.source }}",
+              "type": "string"
+            },
+            {
+              "id": "notes",
+              "name": "notes",
+              "value": "={{ ($json.source === 'maps' || $json.source === 'yelp') ? 'No website, ' + $json.reviews + ' reviews, rating ' + $json.rating : '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "086bf5a5-473f-46cc-bb35-62b9e202e056",
+      "name": "Append to Call List (Enriched)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2256,
+        928
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.business_name }}",
+            "category": "={{ $json.category }}",
+            "city": "={{ $json.city }}",
+            "phone": "={{ $json.phone }}",
+            "website": "={{ $json.website }}",
+            "rating": "={{ $json.rating }}",
+            "reviews": "={{ $json.reviews }}",
+            "added_date": "={{ $json.added_date }}",
+            "source": "={{ $json.source }}",
+            "notes": "={{ $json.notes }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
+    },
+    {
+      "id": "004db6b1-45d9-4948-996c-8397c1c6a1c2",
+      "name": "Enrich Website Contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1328,
+        960
+      ],
+      "parameters": {
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "options": {
+          "timeout": 300000
+        },
+        "url": "https://api.apify.com/v2/acts/vdrmota~contact-info-scraper/run-sync-get-dataset-items",
+        "jsonBody": "={{ JSON.stringify({\n        startUrls: [{ url: $json.website }],\n        maxDepth: 1,\n        maxPagesPerDomain: 3,\n        sameDomain: true,\n        proxyConfiguration: { useApifyProxy: true }\n      }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "1490cebf-7717-4be4-a3a5-dd2487f23ba5",
+      "name": "Merge Enriched Contacts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        960
+      ],
+      "parameters": {
+        "jsCode": "const stripPhone = (p) => {\n  let d = String(p || '').replace(/\\D/g, '');\n  if (d.length === 11 && d.startsWith('1')) d = d.slice(1);\n  return d;\n};\nlet base = [];\ntry { base = $('Dedupe Against Sheets').all(); } catch (e) {}\nconst byWebsite = new Map();\nfor (const b of base) {\n  const w = String(b.json.website || '').replace(/\\/$/, '').toLowerCase();\n  if (w) byWebsite.set(w, b.json);\n}\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (Object.keys(j).length === 0) continue;\n  const w = String(j.originalStartUrl || j.url || j.website || j.domain || '').replace(/\\/$/, '').toLowerCase();\n  const b = byWebsite.get(w);\n  if (!b) continue;\n  const email = Array.isArray(j.emails) && j.emails.length ? j.emails[0] : '';\n  const phone = Array.isArray(j.phones) && j.phones.length ? stripPhone(j.phones[0]) : '';\n  if (email) b.email = email;\n  b.emailKey = String(b.email || '').toLowerCase().trim();\n  if (!b.phone && phone) { b.phone = phone; b.phoneKey = phone; }\n  b.nameKey = b.nameKey || b.business_name.toLowerCase().trim();\n  out.push({ json: b });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "fa458ce2-1a46-4bfa-813a-c3c783151cd9",
+      "name": "Loop Over Enrichment",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1552,
+        1152
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "68a62be6-5870-4c8a-b27e-61c63626c5b5",
+      "name": "Prep Call List Rows",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1440,
+        640
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "business_name",
+              "name": "business_name",
+              "value": "={{ $json.business_name }}",
+              "type": "string"
+            },
+            {
+              "id": "category",
+              "name": "category",
+              "value": "={{ $json.category }}",
+              "type": "string"
+            },
+            {
+              "id": "city",
+              "name": "city",
+              "value": "={{ $json.city }}",
+              "type": "string"
+            },
+            {
+              "id": "phone",
+              "name": "phone",
+              "value": "={{ $json.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "website",
+              "name": "website",
+              "value": "={{ $json.website }}",
+              "type": "string"
+            },
+            {
+              "id": "rating",
+              "name": "rating",
+              "value": "={{ $json.rating }}",
+              "type": "string"
+            },
+            {
+              "id": "reviews",
+              "name": "reviews",
+              "value": "={{ $json.reviews }}",
+              "type": "string"
+            },
+            {
+              "id": "added_date",
+              "name": "added_date",
+              "value": "={{ $today.setZone('America/New_York').toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "source",
+              "name": "source",
+              "value": "={{ $json.source }}",
+              "type": "string"
+            },
+            {
+              "id": "notes",
+              "name": "notes",
+              "value": "={{ ($json.source === 'maps' || $json.source === 'yelp') ? 'No website, ' + $json.reviews + ' reviews, rating ' + $json.rating : '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d4e4e3e6-c68b-4f18-965f-ed63c2f7750e",
+      "name": "Append to Call List",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1808,
+        640
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.business_name }}",
+            "category": "={{ $json.category }}",
+            "city": "={{ $json.city }}",
+            "phone": "={{ $json.phone }}",
+            "website": "={{ $json.website }}",
+            "rating": "={{ $json.rating }}",
+            "reviews": "={{ $json.reviews }}",
+            "added_date": "={{ $json.added_date }}",
+            "source": "={{ $json.source }}",
+            "notes": "={{ $json.notes }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      }
+    },
+    {
+      "id": "110b4652-170b-486d-b7a2-9e854fd4913a",
+      "name": "Scrape Indeed Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        496,
+        672
+      ],
+      "parameters": {
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "options": {
+          "timeout": 300000
+        },
+        "url": "https://api.apify.com/v2/acts/misceres~indeed-scraper/run-sync-get-dataset-items",
+        "jsonBody": "={{ JSON.stringify({\n        position: $json.position,\n        location: $json.location,\n        maxItems: $json.maxItems || 25,\n        country: 'US',\n        fromDays: 7,\n        proxyConfiguration: { useApifyProxy: true }\n      }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "f52a5930-78fb-4811-af2a-6d618248bbee",
+      "name": "Shape & Filter Job Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        672
+      ],
+      "parameters": {
+        "jsCode": "// Only drop employers whose name clearly indicates a staffing agency,\n// government body, university, or large health system. Everything else stays.\nconst dropPatterns = [\n  { re: /staffing/i, why: 'staffing agency' },\n  { re: /recruit/i, why: 'recruiting firm' },\n  { re: /\btemp/i, why: 'temp agency' },\n  { re: /agency/i, why: 'agency' },\n  { re: /county/i, why: 'county government' },\n  { re: /city of/i, why: 'city government' },\n  { re: /state of/i, why: 'state government' },\n  { re: /university/i, why: 'university' },\n  { re: /hospital/i, why: 'hospital' },\n  { re: /health ?system/i, why: 'health system' },\n];\nconst items = $input.all().filter(i => Object.keys(i.json).length > 0);\nconst out = [];\nfor (const item of items) {\n  const j = item.json;\n  const company = j.companyName || j.company || j.employer || '';\n  const position = j.positionName || j.title || j.position || '';\n  if (!company) continue;\n  const hit = dropPatterns.find(p => p.re.test(company));\n  if (hit) {\n    console.log('DROPPED Indeed employer: \"' + company + '\" — reason: ' + hit.why);\n    continue;\n  }\n  let city = '';\n  const loc = j.location || '';\n  if (typeof loc === 'string') city = loc.split(',')[0].trim();\n  else if (loc && typeof loc === 'object') city = loc.city || '';\n  out.push({ json: {\n    business_name: company,\n    category: position,\n    city,\n    phone: '',\n    email: '',\n    website: j.companyWeb || j.website || '',\n    rating: '',\n    reviews: '',\n    source: 'indeed',\n  } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "9cf8eaa3-9f43-4fc5-aa0f-8edd8489dc94",
+      "name": "Lookup Business on Google Maps",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1168,
+        960
+      ],
+      "parameters": {
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "options": {
+          "timeout": 300000
+        },
+        "url": "https://api.apify.com/v2/acts/compass~crawler-google-places/run-sync-get-dataset-items",
+        "jsonBody": "={{ JSON.stringify({\n        searchStringsArray: [$json.business_name + ' ' + ($json.city || 'Fredericksburg') + ', VA'],\n        maxCrawledPlacesPerSearch: 1,\n        website: 'withoutWebsite',\n        skipClosedPlaces: true,\n        language: 'en',\n        maxReviews: 0,\n        maxImages: 0,\n        scrapeContacts: false,\n        scrapePlaceDetailPage: false,\n        proxyConfiguration: { useApifyProxy: true }\n      }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "9501be8b-c693-4adb-b62e-590d93e414bc",
+      "name": "Shape Google Places Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        1344
+      ],
+      "parameters": {
+        "jsCode": "// Take the first Google Places result for the current Indeed lead.\n// No match -> drop the item (returns nothing).\n// Niche: handymen & contractors only.\nconst tradeRe = /contractor|handyman|remodel|roofer|roofing|hvac|plumb|electric|paint|builder|construction|landscap|fenc|floor|concrete|deck|home improvement|general contractor|drywall|carpent|masonry|siding|gutter/i;\n// Beauty/salon blacklist applied to every lead.\nconst beautyRe = /salon|spa|nail|beauty|massage|barber|lash|med spa|tanning/i;\n// No-real-website rule: website empty or pointing at a directory/social profile.\nconst fakeSiteRe = /facebook.com|instagram.com|yelp.com|nextdoor.com|linktr.ee|sites.google.com|business.site|angi.com|homeadvisor.com|thumbtack.com|houzz.com|bbb.org/i;\nlet lead = {};\ntry { lead = $('Loop Over Indeed Leads').item.json; } catch (e) {}\nconst places = $input.all().filter(i => Object.keys(i.json).length > 0 && (i.json.title || i.json.name));\nif (!places.length) {\n  console.log('DROPPED Indeed lead (no Google Maps match): \"' + (lead.business_name || '') + '\"');\n  return [];\n}\nconst p = places[0].json;\nconst gmapsCategory = p.categoryName || '';\nif (beautyRe.test(gmapsCategory) || beautyRe.test(p.title || '')) {\n  console.log('DROPPED Indeed lead (beauty/salon category): \"' + (lead.business_name || p.title || '') + '\" — category: ' + gmapsCategory);\n  return [];\n}\nif (!tradeRe.test(gmapsCategory)) {\n  console.log('DROPPED Indeed lead (not a trade/home service): \"' + (lead.business_name || p.title || '') + '\" — category: ' + gmapsCategory);\n  return [];\n}\n// Mid/higher tier contractors only: require 15+ reviews AND rating >= 3.8.\n// Leads missing a review count are dropped.\nconst rating = p.totalScore != null ? Number(p.totalScore) : null;\nconst reviews = p.reviewsCount != null ? Number(p.reviewsCount) : null;\nif (reviews == null || !isFinite(reviews)) {\n  console.log('DROPPED Indeed lead (no review count): \"' + (lead.business_name || p.title || '') + '\"');\n  return [];\n}\nif (reviews < 15 || rating == null || !isFinite(rating) || rating < 3.8) {\n  console.log('DROPPED Indeed lead (below quality threshold): \"' + (lead.business_name || p.title || '') + '\" — rating: ' + rating + ', reviews: ' + reviews);\n  return [];\n}\nconst pWebsite = String(p.website || '').trim();\nif (pWebsite && !fakeSiteRe.test(pWebsite)) {\n  console.log('DROPPED Indeed lead (has a real website): \"' + (lead.business_name || p.title || '') + '\" — ' + pWebsite);\n  return [];\n}\nconst stripPhone = (ph) => {\n  let d = String(ph || '').replace(/D/g, '');\n  if (d.length === 11 && d.startsWith('1')) d = d.slice(1);\n  return d;\n};\nreturn [{ json: {\n  business_name: lead.business_name || p.title || '',\n  category: gmapsCategory || lead.category || '',\n  city: lead.city || p.city || '',\n  phone: stripPhone(p.phone || ''),\n  email: '',\n  website: pWebsite,\n  rating: p.totalScore != null ? String(p.totalScore) : '',\n  reviews: p.reviewsCount != null ? String(p.reviewsCount) : '',\n  source: 'indeed',\n} }];"
+      }
+    },
+    {
+      "id": "a2d200d6-d4b5-4082-ab7d-48f0540021cd",
+      "name": "Loop Over Indeed Leads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        944,
+        864
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "f68f2242-4ea6-422f-9c93-8b7c6411d93c",
+      "name": "Scrape Yelp Businesses",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        496,
+        864
+      ],
+      "parameters": {
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "options": {
+          "timeout": 300000
+        },
+        "url": "https://api.apify.com/v2/acts/tri_angle~yelp-scraper/run-sync-get-dataset-items",
+        "jsonBody": "={{ JSON.stringify({\n        searchTerms: [$json.searchTerm],\n        locations: [$json.location],\n        maxItems: $json.maxItems || 20,\n        proxyConfiguration: { useApifyProxy: true }\n      }) }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "7d705659-d4ba-47c7-a9c4-c8f7aa427fce",
+      "name": "Shape Yelp Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        864
+      ],
+      "parameters": {
+        "jsCode": "// Keep rule (shared with Maps): keep only established contractors/handymen\n// with NO real website — website empty or pointing at a directory/social profile\n// — AND 15+ reviews AND rating >= 3.8. Drop everything with a real website.\nconst items = $input.all().filter(i => Object.keys(i.json).length > 0);\nconst beautyRe = /salon|spa|nail|beauty|massage|barber|lash|med spa|tanning/i;\nconst fakeSiteRe = /facebook.com|instagram.com|yelp.com|nextdoor.com|linktr.ee|sites.google.com|business.site|angi.com|homeadvisor.com|thumbtack.com|houzz.com|bbb.org/i;\nconst out = [];\nfor (const item of items) {\n  const j = item.json;\n  const name = j.name || j.businessName || '';\n  if (!name) continue;\n  let category = '';\n  if (Array.isArray(j.categories) && j.categories.length) {\n    const c = j.categories[0];\n    category = typeof c === 'string' ? c : (c.title || '');\n  } else if (typeof j.category === 'string') category = j.category;\n  const allCats = Array.isArray(j.categories) ? j.categories.map(c => typeof c === 'string' ? c : (c.title || '')).join(' ') : category;\n  if (beautyRe.test(allCats) || beautyRe.test(name)) {\n    console.log('DROPPED Yelp lead (beauty/salon category): \"' + name + '\" — category: ' + allCats);\n    continue;\n  }\n  // Mid/higher tier contractors only: require 15+ reviews AND rating >= 3.8.\n  // Leads missing a review count are dropped.\n  const rc = j.reviewCount != null ? Number(j.reviewCount) : (j.reviews != null ? Number(j.reviews) : null);\n  const rt = j.rating != null ? Number(j.rating) : null;\n  if (rc == null || !isFinite(rc)) {\n    console.log('DROPPED Yelp lead (no review count): \"' + name + '\"');\n    continue;\n  }\n  if (rc < 10 || rt == null || !isFinite(rt) || rt < 3.8) {\n    console.log('DROPPED Yelp lead (below quality threshold): \"' + name + '\" — rating: ' + rt + ', reviews: ' + rc);\n    continue;\n  }\n  if (j.isClosed === true) {\n    console.log('DROPPED Yelp lead (permanently closed): \"' + name + '\"');\n    continue;\n  }\n  const tradeRe = /contractor|handyman|remodel|roof|siding|gutter|window|hvac|plumb|electric|paint|drywall|floor|tile|deck|fenc|concrete|masonry|paving|excavat|landscap|hardscap|tree|pressure wash|garage door|insulat|waterproof|builder|construction|home improvement|carpent|kitchen|bath|basement/i;\n  if (!tradeRe.test(allCats)) {\n    console.log('DROPPED Yelp lead (not a trade): \"' + name + '\" — category: ' + allCats);\n    continue;\n  }\n  const website = String(j.website || j.bizWebsite || j.websiteUrl || j.businessWebsite || j.web || '').trim();\n  if (website && !fakeSiteRe.test(website)) {\n    console.log('DROPPED Yelp lead (has a real website): \"' + name + '\" — ' + website);\n    continue;\n  }\n  const stripPhoneY = (ph) => {\n    let d = String(ph || '').replace(/\\D/g, '');\n    if (d.length === 11 && d.startsWith('1')) d = d.slice(1);\n    return d;\n  };\n  // Address fields: Yelp location object fields first, then parse city out of\n  // the address string, then fall back to the searched location name.\n  const locObj = (j.location && typeof j.location === 'object') ? j.location : {};\n  let address = String(j.address || locObj.address || locObj.address1 || '').trim();\n  let city = String(j.city || locObj.city || '').trim();\n  if (!city && address) {\n    const parts = address.split(',').map(s => s.trim()).filter(Boolean);\n    if (parts.length >= 2) city = parts[parts.length >= 3 ? parts.length - 2 : parts.length - 1].replace(/s+VA\b.*$/i, '').trim();\n  }\n  if (!city) {\n    let searchedLoc = '';\n    try { searchedLoc = $('Route Branch').item.json.location || ''; } catch (e) {}\n    city = String(searchedLoc).replace(/s+VA\b.*$/i, '').replace(/,.*$/, '').trim();\n  }\n  out.push({ json: {\n    business_name: name,\n    category,\n    owner: '',\n    city,\n    state: String(locObj.state || j.state || 'VA').trim() || 'VA',\n    address,\n    phone: stripPhoneY(j.phone || j.phoneNumber || ''),\n    email: '',\n    website,\n    listed_website: website,\n    maps_url: j.url || '',\n    gbp_links: '',\n    rating: j.rating != null ? String(j.rating) : '',\n    reviews: j.reviewCount != null ? String(j.reviewCount) : (j.reviews != null ? String(j.reviews) : ''),\n    source: 'yelp',\n  } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "b08f3e5f-1313-4c21-ac56-db697dcd9cd7",
+      "name": "Set Leads Source Header",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2032,
+        736
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source": "source"
+          },
+          "matchingColumns": [
+            "source"
+          ],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW",
+          "locationDefine": {
+            "values": {
+              "headerRow": 1,
+              "firstDataRow": 1
+            }
+          }
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "d675b654-af60-4384-9af9-947bc9b9ab41",
+      "name": "Set Call List Source Header",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2256,
+        736
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source": "source"
+          },
+          "matchingColumns": [
+            "source"
+          ],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW",
+          "locationDefine": {
+            "values": {
+              "headerRow": 1,
+              "firstDataRow": 1
+            }
+          }
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "28237385-79bc-4efe-9de1-4f4ed8a3fd8d",
+      "name": "Manual Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        224
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Schedule: Daily 5AM": {
+      "main": [
+        [
+          {
+            "node": "Build Search Matrix",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Set Leads Source Header",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Matrix": {
+      "main": [
+        [
+          {
+            "node": "Route Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Branch": {
+      "main": [
+        [
+          {
+            "node": "Scrape Google Maps Businesses",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Combine Leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Scrape Indeed Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Scrape Yelp Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Google Maps Businesses": {
+      "main": [
+        [
+          {
+            "node": "Wait For Actor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait For Actor": {
+      "main": [
+        [
+          {
+            "node": "Check Actor Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Actor Status": {
+      "main": [
+        [
+          {
+            "node": "Is Actor Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Actor Done": {
+      "main": [
+        [
+          {
+            "node": "Fetch Actor Dataset",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait For Actor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Actor Dataset": {
+      "main": [
+        [
+          {
+            "node": "Shape Maps Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Maps Leads": {
+      "main": [
+        [
+          {
+            "node": "Combine Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Leads": {
+      "main": [
+        [
+          {
+            "node": "Add Dedupe Keys",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Dedupe Keys": {
+      "main": [
+        [
+          {
+            "node": "Read Leads Tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Call List Tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Verification Tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Dedupe Against Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe Against Sheets": {
+      "main": [
+        [
+          {
+            "node": "Dedupe Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe Complete": {
+      "main": [
+        [
+          {
+            "node": "Route by Source",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Source": {
+      "main": [
+        [
+          {
+            "node": "Prep Verification Rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route by Contact Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Verification Rows": {
+      "main": [
+        [
+          {
+            "node": "Append to Verification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Contact Info": {
+      "main": [
+        [
+          {
+            "node": "Prep Leads Rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cap Enrichment (Test Mode)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Call List Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Leads Rows": {
+      "main": [
+        [
+          {
+            "node": "Append to Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cap Enrichment (Test Mode)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Enriched": {
+      "main": [
+        [
+          {
+            "node": "Prep Leads Rows (Enriched)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prep Call List Rows (Enriched)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Leads Rows (Enriched)": {
+      "main": [
+        [
+          {
+            "node": "Append to Leads (Enriched)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Call List Rows (Enriched)": {
+      "main": [
+        [
+          {
+            "node": "Append to Call List (Enriched)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich Website Contacts": {
+      "main": [
+        [
+          {
+            "node": "Merge Enriched Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Enriched Contacts": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Enrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Enrichment": {
+      "main": [
+        [
+          {
+            "node": "Enrich Complete",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Route Enriched",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enrich Website Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prep Call List Rows": {
+      "main": [
+        [
+          {
+            "node": "Append to Call List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Indeed Jobs": {
+      "main": [
+        [
+          {
+            "node": "Shape & Filter Job Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape & Filter Job Leads": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Indeed Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Business on Google Maps": {
+      "main": [
+        [
+          {
+            "node": "Shape Google Places Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Google Places Lead": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Indeed Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Indeed Leads": {
+      "main": [
+        [
+          {
+            "node": "Combine Leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lookup Business on Google Maps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Yelp Businesses": {
+      "main": [
+        [
+          {
+            "node": "Shape Yelp Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Yelp Leads": {
+      "main": [
+        [
+          {
+            "node": "Combine Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Leads Source Header": {
+      "main": [
+        [
+          {
+            "node": "Set Call List Source Header",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Run": {
+      "main": [
+        [
+          {
+            "node": "Build Search Matrix",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Set Leads Source Header",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

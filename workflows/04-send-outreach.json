@@ -1,0 +1,1623 @@
+{
+  "name": "Send Outreach",
+  "nodes": [
+    {
+      "id": "3e644ebb-98f5-45ad-8b42-f982f4fd8753",
+      "name": "Weekdays 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ],
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2310073-5f80-45e4-af66-0ea0e9ea920c",
+      "name": "Wait 0-45min Random Start",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -432,
+        1088
+      ],
+      "parameters": {
+        "amount": "={{  (Number($json.Hour) === 9 && Number($json.Minute) === 0) ? Math.floor(Math.random() * 46) : 0  }}",
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "f967cec0-db5d-4a4a-9a4d-2ae73c9333fc",
+      "name": "Read Settings Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -208,
+        1088
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Settings"
+        },
+        "options": {}
+      },
+      "onError": "continueErrorOutput",
+      "executeOnce": true
+    },
+    {
+      "id": "18d585cd-f05b-48ec-bce3-7dd1d7b41e8c",
+      "name": "Create Settings Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        16,
+        1280
+      ],
+      "parameters": {
+        "operation": "create",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "title": "Settings",
+        "options": {}
+      }
+    },
+    {
+      "id": "eeb3c490-9707-42f9-9340-8f42c01ad857",
+      "name": "Seed PAUSED Flag",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        240,
+        1280
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Settings"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "PAUSED": "FALSE"
+          },
+          "schema": [
+            {
+              "id": "PAUSED",
+              "displayName": "PAUSED",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4471025d-723e-4610-b1f2-c7e8d2ff9d6d",
+      "name": "Is Paused",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        16,
+        992
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "paused",
+              "leftValue": "={{ String($json.PAUSED || $json.paused || \"\") }}",
+              "rightValue": "TRUE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b55aaec7-4bab-4a83-a22a-be4e762bcc18",
+      "name": "Stop When Paused",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        240,
+        896
+      ],
+      "parameters": {
+        "errorMessage": "Outreach paused: Settings tab PAUSED is TRUE. Set it to FALSE to resume."
+      }
+    },
+    {
+      "id": "f918d32e-a8f9-4e42-bfac-4339c07c8879",
+      "name": "Read Leads Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        272,
+        128
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {}
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "a5f35e0d-1e41-4da3-b8e3-af91bfaf8d05",
+      "name": "Select Due Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        128
+      ],
+      "parameters": {
+        "jsCode": "// ======= CONFIG =======\n// DAILY_CAP override: if set above 0 it replaces the auto ramp below. Set to 0 to use the ramp.\nconst DAILY_CAP = 0;\n// START_DATE: first day of outreach. The ramp is based on whole weeks since this date.\nconst START_DATE = '2026-09-24';\n// TEST_EMAIL: set to an email address to run in test mode. Keep in sync with the\n// TEST_EMAIL constant at the top of this workflow file. Leave as an empty string for normal runs.\nconst TEST_EMAIL = \"\";\n// ======================\n\n// Auto ramp: week 1 = 5/day, week 2 = 10, week 3 = 15, week 4+ = 20, hard max 25.\nfunction dailyCap() {\n  if (DAILY_CAP > 0) return DAILY_CAP;\n  const start = new Date(START_DATE + 'T00:00:00').getTime();\n  const weeks = Math.max(0, Math.floor((Date.now() - start) / (7 * 24 * 60 * 60 * 1000)));\n  return Math.min(25, 5 * Math.min(4, weeks + 1));\n}\nconst CAP = dailyCap();\n\nconst rows = $input.all();\nconst now = Date.now();\nconst DAY_MS = 24 * 60 * 60 * 1000;\n\nfunction daysSince(dateStr) {\n  if (!dateStr) return Infinity;\n  const t = new Date(dateStr).getTime();\n  if (isNaN(t)) return Infinity;\n  return (now - t) / DAY_MS;\n}\n\nconst due = [];\nfor (const item of rows) {\n  const j = item.json;\n  const status = (j.status == null ? '' : String(j.status)).trim().toLowerCase();\n  const email = (j.email == null ? '' : String(j.email)).trim();\n  if (!email) continue; // skip leads with no email\n  if (status === 'replied' || status === 'unsub' || status === 'done' || status === 'invalid') continue; // never touch these\n\n  let step = 0;\n  if (status === '') step = 1;\n  else if (status === 'sent_1' && daysSince(j.last_sent) >= 3) step = 2;\n  else if (status === 'sent_2' && daysSince(j.last_sent) >= 4) step = 3;\n\n  if (step > 0) {\n    due.push({ json: { ...j, step } });\n  }\n  if (due.length >= CAP) break;\n}\n\n// Test mode: output exactly one item — the first due lead with email replaced by TEST_EMAIL.\nif (TEST_EMAIL && due.length > 0) {\n  const first = due[0].json;\n  return [{ json: { ...first, email: TEST_EMAIL, is_test: true } }];\n}\n\nreturn due;"
+      }
+    },
+    {
+      "id": "9698d9a7-6eac-4701-8e89-4ddd9a63d282",
+      "name": "Build Daily Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        1088
+      ],
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst outcomes = Array.isArray(staticData.outcomes) ? staticData.outcomes : [];\nstaticData.outcomes = [];\n\nconst sent = outcomes.filter((o) => o.result === 'sent');\nconst skipped = outcomes.filter((o) => o.result !== 'sent');\n\nconst lines = [];\nlines.push('Sent ' + sent.length + ' outreach email(s) today:');\nfor (const o of sent) {\n  lines.push('- ' + o.business_name + ' <' + o.email + '> step ' + o.step);\n}\nif (skipped.length > 0) {\n  lines.push('');\n  lines.push('Skipped:');\n  for (const o of skipped) {\n    lines.push('- ' + o.business_name + ' <' + o.email + '>: ' + o.skip_reason);\n  }\n}\n\nreturn [{ json: {\n  subject: 'RLD outreach: ' + sent.length + ' sent today',\n  body: lines.join(String.fromCharCode(10)),\n} }];"
+      }
+    },
+    {
+      "id": "f82a11ab-ee82-4218-be16-dc6b3833b6b2",
+      "name": "Email Daily Summary",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        544,
+        848
+      ],
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "2b38897b-e029-492c-a816-b66a103d75be",
+      "name": "Validate Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        320
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Basic email validation. MX check happens in the next node (HTTP to dns.google).\nconst lead = $('Loop One Lead at a Time').item.json;\nconst email = String(lead.email || '').trim().toLowerCase();\nconst today = new Date().toISOString().slice(0, 10);\n\nfunction invalid(reason) {\n  return { ...lead, invalid_email: true, new_status: 'invalid', skip_reason: reason, today };\n}\n\nconst FORMAT = /^[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}$/;\nif (!FORMAT.test(email)) return invalid('bad email format');\n\nconst local = email.split('@')[0];\nconst domain = email.split('@')[1] || '';\nconst BAD_LOCAL = ['noreply', 'no-reply', 'donotreply', 'abuse', 'postmaster', 'mailer-daemon'];\nfor (const b of BAD_LOCAL) {\n  if (local.startsWith(b)) return invalid('non-personal address (' + b + ')');\n}\nconst BAD_DOMAIN = ['facebook.com', 'example.com', 'mailinator.com', 'guerrillamail.com', 'tempmail.com', '10minutemail.com', 'yopmail.com'];\nif (BAD_DOMAIN.indexOf(domain) !== -1) return invalid('blocked or disposable domain (' + domain + ')');\n\nreturn { ...lead, email_domain: domain, invalid_email: false, today };"
+      }
+    },
+    {
+      "id": "f1950eea-db90-49a4-b784-8ad80bb5f24f",
+      "name": "Check MX Records",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        544,
+        320
+      ],
+      "parameters": {
+        "url": "={{ \"https://dns.google/resolve?name=\" + encodeURIComponent(String($json.email_domain)) + \"&type=MX\" }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "25460663-575d-4f8e-996d-9c27403df470",
+      "name": "Has Valid Email",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        768,
+        592
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "not-invalid",
+              "leftValue": "={{ $(\"Validate Email\").item.json.invalid_email }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "has-mx",
+              "leftValue": "={{ ($json.error || (Array.isArray($json.Answer) && $json.Answer.length > 0)) ? \"yes\" : \"no\" }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c68b275c-357c-4e6c-b52d-6202f19a1570",
+      "name": "Has Website",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-website",
+              "leftValue": "={{ ($json.website == null ? \"\" : String($json.website)).trim() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8a7dcbf6-1920-4a03-854a-2176bedbcddc",
+      "name": "Fetch Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1072,
+        -672
+      ],
+      "parameters": {
+        "url": "={{ /^https?:\\/\\//i.test(String($json.website)) ? String($json.website) : \"https://\" + String($json.website) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "2f022ece-c6ea-4bbe-81cf-1ce24e8b458f",
+      "name": "Check PageSpeed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1296,
+        -672
+      ],
+      "parameters": {
+        "url": "={{ \"https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=\" + encodeURIComponent(/^https?:\\/\\//i.test(String($(\"Has Website\").item.json.website)) ? String($(\"Has Website\").item.json.website) : \"https://\" + String($(\"Has Website\").item.json.website)) + \"&strategy=mobile\" }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "badf4b80-39a9-4f7d-add2-8f01323f6a8c",
+      "name": "Grade Website",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        -672
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Grade the lead's website from the fetch and PageSpeed results.\nconst lead = $('Has Website').item.json;\nconst site = $('Fetch Website').item.json || {};\nconst ps = $('Check PageSpeed').item.json || {};\n\nconst problems = [];\n\n// 1. Request failed\nconst siteFailed = !!site.error || site.statusCode == null || Number(site.statusCode) >= 400;\nif (siteFailed) problems.push('website is down or unreachable');\n\n// 2. Not HTTPS\nconst url = String(lead.website || '');\nif (!/^https:\\/\\//i.test(url)) problems.push('site is not on HTTPS');\n\nconst html = typeof site.body === 'string' ? site.body : (typeof site.data === 'string' ? site.data : '');\n\n// 3. No viewport meta tag\nif (!siteFailed && html) {\n  if (!/<meta[^>]+name=[\"']viewport[\"']/i.test(html)) problems.push('not mobile friendly (no viewport meta tag)');\n}\n\n// 4. Copyright year 2+ years old\nif (html) {\n  const m = html.match(/(?:copyright|&copy;|©)[^0-9]{0,20}((?:19|20)\\d{2})/i);\n  if (m) {\n    const year = parseInt(m[1], 10);\n    if (year < new Date().getFullYear() - 2) problems.push('site has not been updated since ' + year);\n  }\n}\n\n// 5. Mobile performance score under 50\nif (!ps.error) {\n  const score = ps.lighthouseResult && ps.lighthouseResult.categories && ps.lighthouseResult.categories.performance\n    ? Math.round(ps.lighthouseResult.categories.performance.score * 100)\n    : null;\n  if (score != null && score < 50) problems.push('slow mobile site (performance score ' + score + '/100)');\n}\n\nconst site_status = problems.length > 0 ? 'bad' : 'good';\nconst site_notes = problems.length > 0 ? problems.join('; ') : 'Site loads fine, HTTPS, mobile friendly, decent speed.';\n\nreturn { ...lead, site_status, site_notes };"
+      }
+    },
+    {
+      "id": "628f8529-9be0-4c39-996c-a9383066eb5e",
+      "name": "Is Test Site",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1552,
+        -784
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-test",
+              "leftValue": "={{ $json.is_test }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2785a5d4-a72a-4536-b41c-1b6e60053ed1",
+      "name": "Write Email with Claude",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        128
+      ],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-haiku-4-5-20251001"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Step {{ $json.step }} of 3. Write the email for this lead:\nBusiness: {{ $json.business_name }}\nCategory: {{ $json.category }}\nCity: {{ $json.city }}\nRating: {{ $json.rating }} ({{ $json.reviews }} reviews)\nWebsite: {{ $json.website }}\nPhone: {{ $json.phone }}\nWebsite check result: {{ $json.site_status }} ({{ $json.site_notes }})\nSource: {{ $json.source }}"
+            }
+          ]
+        },
+        "options": {
+          "includeMergedResponse": true,
+          "system": "You write short cold emails for Ron, a local web designer in Fredericksburg VA. Sound like a real local guy typing on his phone: plain, friendly, specific. Never use dashes of any kind, buzzwords, exclamation marks, emojis, URLs, or a sign off (the system adds the signature). Never invent facts; only use the lead data given. Never mention AI or Ron's age. Return JSON only: {\"subject\": \"...\", \"body\": \"...\"}. Subject: 2 to 5 words, all lowercase, includes the business name, like 'question about nail queen' or 'nail queen on google'. Body: under 75 words, each paragraph on one line, one blank line between paragraphs. First line of every step 1 email is exactly 'Hi [business name] team,'. STEP 1 when site_status is none: paragraph 1 is one true specific observation from the data (their rating and review count, or that their Google listing only links to Facebook or has no website). Paragraph 2 is the cost in plain words: people searching for a [category] in [city] tap the places with a real website first. Paragraph 3 offers to put together a free mockup of what a site for [business name] could look like, no cost and no strings. Paragraph 4 is exactly 'Want me to send it over?'. STEP 1 when site_status is bad: same structure but paragraph 1 names the one specific problem from site_notes. STEP 1 when site_status is good: compliment the site in one line, then offer an AI receptionist that answers missed calls and books appointments 24/7, end with 'Worth a quick look?'. STEP 2 (follow up, replies in the same thread, no greeting line): 2 short paragraphs, a new angle: most people check reviews and a website before they ever call, and the free mockup offer still stands. End with 'Should I go ahead and make it?'. STEP 3 (last email, no greeting line): one or two lines: haven't heard back so this is the last one, if they ever want the free mockup just reply yes. No slogans or catchy marketing lines like 'the difference between getting found and getting passed over'; just plain facts. If the lead's source is 'indeed': the step 1 email says you saw they are hiring for [category] and offers an AI receptionist that answers every call and books appointments 24/7, ending with 'Worth a quick look?'.",
+          "maxTokens": 1024
+        }
+      }
+    },
+    {
+      "id": "a75735d3-d29c-4334-8ee8-556ecf5cb9ad",
+      "name": "Save Site Check",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1936,
+        -672
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "site_status": "={{ $json.site_status }}",
+            "site_notes": "={{ $json.site_notes }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "site_status",
+              "displayName": "site_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "site_notes",
+              "displayName": "site_notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b5762cb6-ca2d-42d3-a462-947e4690e14e",
+      "name": "Set No Website",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1936,
+        -960
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "site-status",
+              "name": "site_status",
+              "value": "none",
+              "type": "string"
+            },
+            {
+              "id": "site-notes",
+              "name": "site_notes",
+              "value": "No website, usually just a Facebook page or Google listing.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "475789c1-d2a6-4e89-aeaf-212e691a97a0",
+      "name": "Clean Email Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        128
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Parse the model JSON, strip em/en dashes, append footer, run the quality check.\nconst lead = $('Loop One Lead at a Time').item.json;\n\nlet text = '';\nconst content = $json.content;\nif (Array.isArray(content)) {\n  const block = content.find((c) => c && c.type === 'text');\n  text = block && block.text ? block.text : '';\n}\nif (!text && typeof $json.merged_response === 'string') {\n  text = $json.merged_response;\n}\n\n// strip markdown fences defensively\nconst FENCE = String.fromCharCode(96, 96, 96);\nif (text.startsWith(FENCE)) {\n  const firstNl = text.indexOf(String.fromCharCode(10));\n  text = firstNl === -1 ? '' : text.slice(firstNl + 1);\n  const lastFence = text.lastIndexOf(FENCE);\n  if (lastFence !== -1) text = text.slice(0, lastFence);\n  text = text.trim();\n}\n\n// Escape control characters inside quoted strings so JSON.parse survives raw newlines.\nfunction sanitizeJson(str) {\n  const BACKSLASH = 92, QUOTE = 34, LF = 10, CR = 13, TAB = 9;\n  let out = '';\n  let inString = false;\n  let escaped = false;\n  for (let i = 0; i < str.length; i++) {\n    const code = str.charCodeAt(i);\n    if (escaped) { out += str[i]; escaped = false; continue; }\n    if (code === BACKSLASH) { out += str[i]; escaped = true; continue; }\n    if (code === QUOTE) { inString = !inString; out += str[i]; continue; }\n    if (inString && code === LF) { out += String.fromCharCode(92) + 'n'; continue; }\n    if (inString && code === CR) { out += String.fromCharCode(92) + 'r'; continue; }\n    if (inString && code === TAB) { out += String.fromCharCode(92) + 't'; continue; }\n    out += str[i];\n  }\n  return out;\n}\n\nlet parsed = null;\ntry {\n  parsed = JSON.parse(text);\n} catch (e) {\n  try {\n    parsed = JSON.parse(sanitizeJson(text));\n  } catch (e2) {\n    const m = text.match(/{[sS]*}/);\n    if (m) {\n      try { parsed = JSON.parse(sanitizeJson(m[0])); } catch (e3) { parsed = null; }\n    }\n  }\n}\n\nconst BANNED = ['free money', 'guarantee', 'act now', 'limited time', 'click here', '100%', 'risk free', 'winner', 'urgent', 'cash', 'discount', 'offer expires'];\nconst DASHES = [String.fromCharCode(0x2014), String.fromCharCode(0x2013), String.fromCharCode(0x2212), '-'];\n\nfunction wordCount(s) { return String(s).trim().split(/\\s+/).filter(Boolean).length; }\n\nfunction checkQuality(subject, body) {\n  const fails = [];\n  if (/https?:\\/\\/|www\\.|\\.com\\b|\\.net\\b|\\.org\\b|\\.io\\b/i.test(body)) fails.push('body contains a URL or link');\n  for (const d of DASHES) {\n    if (body.indexOf(d) !== -1) { fails.push('body contains a dash character'); break; }\n  }\n  const lower = body.toLowerCase();\n  for (const w of BANNED) {\n    if (lower.indexOf(w) !== -1) fails.push('body contains banned phrase: ' + w);\n  }\n  if (wordCount(body) > 90) fails.push('body is over 90 words');\n  if (wordCount(subject) > 6) fails.push('subject is over 6 words');\n  return fails;\n}\n\nconst isRegen = lead.regen === true;\nlet quality_failures = [];\n\nif (!parsed || !parsed.subject || !parsed.body) {\n  quality_failures = ['model output could not be parsed'];\n} else {\n  quality_failures = checkQuality(String(parsed.subject), String(parsed.body));\n}\n\nif (quality_failures.length > 0 && !isRegen) {\n  // First failure: flag for one regeneration pass.\n  return {\n    needs_regen: true,\n    quality_failures: quality_failures.join('; '),\n    subject: parsed && parsed.subject ? String(parsed.subject) : '',\n    body: parsed && parsed.body ? String(parsed.body) : '',\n    is_test: lead.is_test === true,\n  };\n}\n\nconst step = lead.step;\nconst today = new Date().toISOString().slice(0, 10);\n\nif (!parsed || !parsed.subject || !parsed.body || quality_failures.length > 0) {\n  // Second failure (or regen still broken): skip the lead with copy_failed.\n  return {\n    copy_failed: true,\n    skip_reason: 'copy_failed',\n    email: lead.email,\n    business_name: lead.business_name,\n    row_number: lead.row_number,\n    new_status: lead.status || '',\n    today,\n    step,\n    is_test: lead.is_test === true,\n  };\n}\n\n// Strip dashes defensively even on a passing draft.\nconst EM_DASH = String.fromCharCode(0x2014);\nconst EN_DASH = String.fromCharCode(0x2013);\nconst stripDashes = (s) => String(s)\n  .split(EM_DASH).join(',')\n  .split(EN_DASH).join(',')\n  .replace(/,{2,}/g, ',');\n\nconst subject = stripDashes(parsed.subject).trim();\nlet body = stripDashes(parsed.body).trim();\n\n// Collapse single line breaks inside paragraphs into spaces; keep blank lines between paragraphs.\nconst CR = String.fromCharCode(13);\nconst LF = String.fromCharCode(10);\nconst SPC = String.fromCharCode(32);\nconst TAB = String.fromCharCode(9);\nconst CR_RE = new RegExp(CR, 'g');\nconst SINGLE_LF_RE = new RegExp('([^' + LF + '])' + LF + '(?!' + LF + ')', 'g');\nconst MULTI_SPACE_RE = new RegExp('[' + SPC + TAB + ']{2,}', 'g');\nconst MULTI_LF_RE = new RegExp(LF + '{3,}', 'g');\nbody = body\n  .replace(CR_RE, '')\n  .replace(SINGLE_LF_RE, '$1 ')\n  .replace(MULTI_SPACE_RE, ' ')\n  .replace(MULTI_LF_RE, LF + LF)\n  .trim();\n\n// Remove any sign-off Claude wrote at the end (bare 'Ron', 'Ron Lenser Digital', or a phone number).\nconst SIGNOFF_NAMES = ['ron', 'ron lenser digital'];\nconst isSignoffLine = (l) => {\n  const t = String(l).trim().toLowerCase();\n  if (!t) return false;\n  if (SIGNOFF_NAMES.indexOf(t) !== -1) return true;\n  const digits = t.replace(/[^0-9]/g, '');\n  const PHONE_CHARS_RE = new RegExp('^[+()0-9][0-9() .' + String.fromCharCode(92) + '-x]*$');\n  if (digits.length >= 7 && PHONE_CHARS_RE.test(t)) return true;\n  return false;\n};\nconst bodyLines = body.split(LF);\nwhile (bodyLines.length > 0) {\n  const last = bodyLines[bodyLines.length - 1];\n  if (last.trim() === '' || isSignoffLine(last)) { bodyLines.pop(); continue; }\n  break;\n}\nbody = bodyLines.join(LF).trim();\n\n// Always append the exact signature after a blank line.\nbody += LF + LF + 'Ron' + LF + 'Ron Lenser Digital' + LF + 'YOUR PHONE';\n\n// Then the existing footer after a blank line.\nbody += LF + LF + \"Not interested? Reply stop and I won't email again.\";\nbody += LF + \"Ron Lenser Digital, YOUR MAILING ADDRESS\";\n\n// Build the HTML version: escape & < >, paragraphs on double newlines,\n// single newlines inside a paragraph become <br>, paragraphs joined by spacer divs.\nconst escapeHtml = (s) => String(s)\n  .replace(/&/g, '&amp;')\n  .replace(/</g, '&lt;')\n  .replace(/>/g, '&gt;');\nconst paragraphs = body.split(LF + LF).map((p) => p.trim()).filter((p) => p !== '');\nconst body_html = paragraphs\n  .map((p) => '<div>' + escapeHtml(p).split(LF).join('<br>') + '</div>')\n  .join('<div><br></div>');\n\nconst newStatus = step === 1 ? 'sent_1' : step === 2 ? 'sent_2' : 'done';\n\nreturn {\n  subject,\n  body,\n  body_html,\n  email: lead.email,\n  business_name: lead.business_name,\n  row_number: lead.row_number,\n  new_status: newStatus,\n  today,\n  step,\n  message_id: lead.message_id || '',\n  site_status: lead.site_status || '',\n  is_test: lead.is_test === true,\n};"
+      }
+    },
+    {
+      "id": "20dde55f-831c-440f-9040-bd0a80ef4e4d",
+      "name": "Copy OK",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1184,
+        -64
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "not-regen",
+              "leftValue": "={{ $json.needs_regen }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "not-failed",
+              "leftValue": "={{ $json.copy_failed }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d35e1980-518a-4d86-8ac0-379bc6f7fb14",
+      "name": "Has Saved Message Id",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1552,
+        -432
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-followup",
+              "leftValue": "={{ String($json.step) }}",
+              "rightValue": "1",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            },
+            {
+              "id": "has-msg-id",
+              "leftValue": "={{ String($json.message_id || \"\") }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b7031ade-1375-4698-8a98-77850451f1ed",
+      "name": "Reply in Thread via Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1936,
+        -480
+      ],
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $json.message_id }}",
+        "emailType": "html",
+        "message": "={{ $json.body_html || $(\"Clean Email Output\").item.json.body_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "9f9eb480-008d-41ff-ac14-e4268ef43a49",
+      "name": "Send Email via Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        128
+      ],
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.body_html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "40b9eccc-6f34-4c9f-b0a8-0bfa1a09cb15",
+      "name": "Is Test Run",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-test",
+              "leftValue": "={{ $json.is_test }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "6e90920b-7de4-4d30-a39d-caae9cd01edb",
+      "name": "Record Outcome",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2528,
+        272
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Record one line for the daily summary in the workflow static data.\nconst staticData = $getWorkflowStaticData('global');\nif (!Array.isArray(staticData.outcomes)) staticData.outcomes = [];\n\nconst lead = $('Loop One Lead at a Time').item.json;\nconst input = $json;\n\nlet entry = null;\nif (input.copy_failed === true) {\n  entry = { business_name: input.business_name || lead.business_name, email: input.email || lead.email, step: input.step || lead.step, result: 'skipped', skip_reason: 'copy_failed' };\n} else if (lead.invalid_email === true || (input.error && !input.Answer)) {\n  // invalid email or MX failure path\n  const v = $('Validate Email').item.json;\n  entry = { business_name: lead.business_name, email: lead.email, step: lead.step, result: 'skipped', skip_reason: v.skip_reason || 'no MX records for domain' };\n} else if (input.id || input.threadId || lead.is_test === true) {\n  // a Gmail send/reply response, or a test-run send (Is Test Run true branch passes Clean Email Output fields)\n  entry = { business_name: lead.business_name, email: lead.email, step: lead.step, result: 'sent', skip_reason: '' };\n} else {\n  entry = { business_name: lead.business_name, email: lead.email, step: lead.step, result: 'skipped', skip_reason: 'unknown' };\n}\nstaticData.outcomes.push(entry);\nreturn entry;"
+      }
+    },
+    {
+      "id": "50f2077a-f3c1-4d40-ad96-e2b43fd4f976",
+      "name": "Loop One Lead at a Time",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        800,
+        208
+      ],
+      "parameters": {
+        "options": {}
+      }
+    },
+    {
+      "id": "52b0320f-d3d4-4cff-aa8f-23bb427633fa",
+      "name": "Wait 60-180s Random",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1920,
+        208
+      ],
+      "parameters": {
+        "amount": "={{ TEST_EMAIL ? 0 : 60 + Math.floor(Math.random() * 121) }}"
+      }
+    },
+    {
+      "id": "39c16010-fb2d-4668-8008-68ebf503c876",
+      "name": "Update Lead Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1696,
+        128
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Clean Email Output').item.json.row_number }}",
+            "status": "={{ $('Clean Email Output').item.json.new_status }}",
+            "last_sent": "={{ $('Clean Email Output').item.json.today }}",
+            "message_id": "={{ String($json.id || $('Clean Email Output').item.json.message_id || \"\") }}",
+            "thread_id": "={{ String($json.threadId || \"\") }}",
+            "skip_reason": ""
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_sent",
+              "displayName": "last_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "skip_reason",
+              "displayName": "skip_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7f38451e-22f9-4f9e-a9bd-755efb62d2cb",
+      "name": "Needs Regen",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1552,
+        512
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "needs-regen",
+              "leftValue": "={{ $json.needs_regen }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "20629ff2-d4ea-415c-b7cb-a77304f056d3",
+      "name": "Mark Regen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1824,
+        512
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "regen",
+              "name": "regen",
+              "value": "true",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "a34b8a18-eb71-4bc8-892a-f4c6b7321b63",
+      "name": "Rewrite Email with Claude",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        2048,
+        512
+      ],
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-haiku-4-5-20251001"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Step {{ $('Loop One Lead at a Time').item.json.step }} of 3. Rewrite this cold email, it failed review:\nSubject: {{ $('Clean Email Output').item.json.subject }}\nBody: {{ $('Clean Email Output').item.json.body }}\nProblems to fix: {{ $('Clean Email Output').item.json.quality_failures }}\nWrite a completely new version for this lead that fixes every listed problem:\nBusiness: {{ $('Loop One Lead at a Time').item.json.business_name }}\nCategory: {{ $('Loop One Lead at a Time').item.json.category }}\nCity: {{ $('Loop One Lead at a Time').item.json.city }}\nRating: {{ $('Loop One Lead at a Time').item.json.rating }} ({{ $('Loop One Lead at a Time').item.json.reviews }} reviews)\nWebsite check result: {{ $('Loop One Lead at a Time').item.json.site_status }} ({{ $('Loop One Lead at a Time').item.json.site_notes }})\nSource: {{ $('Loop One Lead at a Time').item.json.source }}"
+            }
+          ]
+        },
+        "options": {
+          "includeMergedResponse": true,
+          "system": "You write short cold emails for Ron, a local web designer in Fredericksburg VA. Sound like a real local guy typing on his phone: plain, friendly, specific. Never use dashes of any kind, buzzwords, exclamation marks, emojis, URLs, or a sign off (the system adds the signature). Never invent facts; only use the lead data given. Never mention AI or Ron's age. Return JSON only: {\"subject\": \"...\", \"body\": \"...\"}. Subject: 2 to 5 words, all lowercase, includes the business name, like 'question about nail queen' or 'nail queen on google'. Body: under 75 words, each paragraph on one line, one blank line between paragraphs. First line of every step 1 email is exactly 'Hi [business name] team,'. STEP 1 when site_status is none: paragraph 1 is one true specific observation from the data (their rating and review count, or that their Google listing only links to Facebook or has no website). Paragraph 2 is the cost in plain words: people searching for a [category] in [city] tap the places with a real website first. Paragraph 3 offers to put together a free mockup of what a site for [business name] could look like, no cost and no strings. Paragraph 4 is exactly 'Want me to send it over?'. STEP 1 when site_status is bad: same structure but paragraph 1 names the one specific problem from site_notes. STEP 1 when site_status is good: compliment the site in one line, then offer an AI receptionist that answers missed calls and books appointments 24/7, end with 'Worth a quick look?'. STEP 2 (follow up, replies in the same thread, no greeting line): 2 short paragraphs, a new angle: most people check reviews and a website before they ever call, and the free mockup offer still stands. End with 'Should I go ahead and make it?'. STEP 3 (last email, no greeting line): one or two lines: haven't heard back so this is the last one, if they ever want the free mockup just reply yes. No slogans or catchy marketing lines like 'the difference between getting found and getting passed over'; just plain facts. If the lead's source is 'indeed': the step 1 email says you saw they are hiring for [category] and offers an AI receptionist that answers every call and books appointments 24/7, ending with 'Worth a quick look?'.",
+          "maxTokens": 1024
+        }
+      }
+    },
+    {
+      "id": "a3993ff9-65e0-4718-a38c-ed11e8702a5c",
+      "name": "Is Test Copy",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1936,
+        400
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-test",
+              "leftValue": "={{ $json.is_test }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1f5c882f-7a9d-436b-921a-e0f88d386c56",
+      "name": "Mark Copy Failed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2304,
+        336
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "skip_reason": "copy_failed"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "skip_reason",
+              "displayName": "skip_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "12c8b0c4-35b7-49ae-9b68-14f9bff6801f",
+      "name": "Is Test Invalid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1936,
+        576
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-test",
+              "leftValue": "={{ $(\"Validate Email\").item.json.is_test }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e80a4961-c6b3-4820-902f-95a88d4911ac",
+      "name": "Mark Invalid Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2304,
+        704
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $(\"Validate Email\").item.json.row_number }}",
+            "status": "invalid",
+            "skip_reason": "={{ $(\"Validate Email\").item.json.skip_reason || ($(\"Check MX Records\").item.json.error ? \"MX lookup failed\" : \"no MX records for domain\") }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "skip_reason",
+              "displayName": "skip_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Weekdays 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Wait 0-45min Random Start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 0-45min Random Start": {
+      "main": [
+        [
+          {
+            "node": "Read Settings Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Settings Tab": {
+      "main": [
+        [
+          {
+            "node": "Is Paused",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Settings Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Settings Tab": {
+      "main": [
+        [
+          {
+            "node": "Seed PAUSED Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Paused": {
+      "main": [
+        [
+          {
+            "node": "Stop When Paused",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Leads Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads Tab": {
+      "main": [
+        [
+          {
+            "node": "Select Due Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Due Leads": {
+      "main": [
+        [
+          {
+            "node": "Loop One Lead at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Daily Summary": {
+      "main": [
+        [
+          {
+            "node": "Email Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Email": {
+      "main": [
+        [
+          {
+            "node": "Check MX Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check MX Records": {
+      "main": [
+        [
+          {
+            "node": "Has Valid Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Valid Email": {
+      "main": [
+        [
+          {
+            "node": "Has Website",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Clean Email Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Test Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Website": {
+      "main": [
+        [
+          {
+            "node": "Fetch Website",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set No Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Website": {
+      "main": [
+        [
+          {
+            "node": "Check PageSpeed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check PageSpeed": {
+      "main": [
+        [
+          {
+            "node": "Grade Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grade Website": {
+      "main": [
+        [
+          {
+            "node": "Is Test Site",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Test Site": {
+      "main": [
+        [
+          {
+            "node": "Write Email with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Site Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Site Check": {
+      "main": [
+        [
+          {
+            "node": "Write Email with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set No Website": {
+      "main": [
+        [
+          {
+            "node": "Write Email with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Email Output": {
+      "main": [
+        [
+          {
+            "node": "Copy OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy OK": {
+      "main": [
+        [
+          {
+            "node": "Has Saved Message Id",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Test Run",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs Regen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Saved Message Id": {
+      "main": [
+        [
+          {
+            "node": "Reply in Thread via Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Email via Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Test Run": {
+      "main": [
+        [
+          {
+            "node": "Record Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Lead Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Outcome": {
+      "main": [
+        [
+          {
+            "node": "Loop One Lead at a Time",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Wait 60-180s Random",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop One Lead at a Time": {
+      "main": [
+        [
+          {
+            "node": "Build Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Validate Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 60-180s Random": {
+      "main": [
+        [
+          {
+            "node": "Loop One Lead at a Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Lead Row": {
+      "main": [
+        [
+          {
+            "node": "Record Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Regen": {
+      "main": [
+        [
+          {
+            "node": "Mark Regen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Test Copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Regen": {
+      "main": [
+        [
+          {
+            "node": "Rewrite Email with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rewrite Email with Claude": {
+      "main": [
+        [
+          {
+            "node": "Clean Email Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Test Copy": {
+      "main": [
+        [
+          {
+            "node": "Record Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Copy Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Copy Failed": {
+      "main": [
+        [
+          {
+            "node": "Record Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Test Invalid": {
+      "main": [
+        [
+          {
+            "node": "Record Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Invalid Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Invalid Row": {
+      "main": [
+        [
+          {
+            "node": "Record Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {}
+}

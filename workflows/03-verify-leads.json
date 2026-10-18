@@ -1,0 +1,1396 @@
+{
+  "name": "Verify Leads",
+  "nodes": [
+    {
+      "id": "86591c7a-a453-4151-b67b-2e9b93508364",
+      "name": "Every 5 min (24/7)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "80c036de-34db-49a7-8894-f244369bbe71",
+      "name": "Read Verification Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        272,
+        416
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Verification"
+        }
+      }
+    },
+    {
+      "id": "27540edb-51b6-4859-8ee3-9761bca0bf4f",
+      "name": "Pick First 20 Pending",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        224
+      ],
+      "parameters": {
+        "jsCode": "const rows = $input.all();\n// skip blank rows (no business name) so they never burn searches or jam the queue\nconst pending = rows.filter(i => String(i.json.status || '').toLowerCase() === 'pending' && String(i.json.business_name || '').trim() !== '').slice(0, 20);\nreturn pending.map(i => ({ json: i.json }));"
+      }
+    },
+    {
+      "id": "8cafaa12-aa9a-4a48-b527-2d1d651305e2",
+      "name": "Mark Rows Checking",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        720,
+        224
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Verification"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "checking"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d43990fa-ad1d-44c3-9a10-1bd61f6faaf6",
+      "name": "Layer 4 GBP Check + Queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const item = $('Pick First 20 Pending').item.json;\nconst DIRECTORY = ['facebook.com','instagram.com','yelp.com','nextdoor.com','linktr.ee','sites.google.com','business.site','angi.com','homeadvisor.com','thumbtack.com','houzz.com','bbb.org','yellowpages.com','porch.com','mapquest.com','google.com','goo.gl','maps.app.goo.gl','linkedin.com','x.com','twitter.com','tiktok.com','manta.com','chamberofcommerce.com'];\nconst isRealDomain = (url) => {\n  if (!url) return false;\n  let u = String(url).trim();\n  if (!/^https?:\\/\\//i.test(u)) u = 'https://' + u;\n  let host;\n  try { host = new URL(u).hostname.toLowerCase(); } catch (e) { return false; }\n  if (!host || !host.includes('.')) return false;\n  return !DIRECTORY.some(d => host === d || host.endsWith('.' + d));\n};\nconst blank = { skip_searches: true, hard_reject: 'Website linked through Google Business Profile', website_found_url: '', q1:'',q2:'',q3:'',q4:'',q5:'',q6:'',q7:'' };\nif (isRealDomain(item.listed_website)) {\n  return [{ json: Object.assign({}, item, blank, { website_found_url: String(item.listed_website) }) }];\n}\nconst urls = String(item.gbp_links || '').match(/https?:\\/\\/[^\\s,;\"']+/gi) || [];\nfor (const u of urls) {\n  if (isRealDomain(u)) {\n    return [{ json: Object.assign({}, item, blank, { website_found_url: u }) }];\n  }\n}\nconst name = String(item.business_name || '').trim();\nconst shortName = name.split(/\\s+/).slice(0, 2).join(' ');\nlet city = String(item.city || '').trim();\nconst address = String(item.address || '').trim();\nif (!city && address) {\n  const m = address.match(/,s*([A-Za-z][A-Za-z .'-]+),s*[A-Z]{2}\b/);\n  if (m) city = m[1].trim();\n}\nconst d10 = String(item.phone || '').replace(/\\D/g, '').slice(-10);\nconst need_phone_lookup = d10.length === 10 && (!city || !address);\nconst q = s => '\"' + s + '\"';\nlet q1 = '', q2 = '', q3 = '', q4 = '', q5 = '', q6 = '', q7 = '';\nif (name) q1 = q(name);\nif (name && city) q2 = q(name + ' ' + city + ' VA');\nif (name) q3 = q(name + ' Virginia');\nif (d10.length === 10) {\n  const f1 = '(' + d10.slice(0,3) + ') ' + d10.slice(3,6) + '-' + d10.slice(6);\n  const f2 = d10.slice(0,3) + '-' + d10.slice(3,6) + '-' + d10.slice(6);\n  q4 = q(f1) + ' OR ' + q(f2) + ' OR ' + q(d10);\n}\nif (address && shortName) q5 = q(address) + ' ' + q(shortName);\nif (name) q6 = q(name) + ' (site:facebook.com OR site:instagram.com OR site:linkedin.com OR site:x.com OR site:tiktok.com)';\nif (name) q7 = q(name) + ' (site:yelp.com OR site:angi.com OR site:homeadvisor.com OR site:bbb.org OR site:thumbtack.com OR site:porch.com OR site:houzz.com OR site:nextdoor.com OR site:yellowpages.com OR site:chamberofcommerce.com)';\nreturn [{ json: Object.assign({}, item, { city: city, skip_searches: false, hard_reject: '', website_found_url: '', need_phone_lookup: need_phone_lookup, q1,q2,q3,q4,q5,q6,q7 }) }];"
+      }
+    },
+    {
+      "id": "abec7eca-6193-411f-81bb-6649058706e5",
+      "name": "Phone Lookup Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        800,
+        896
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ q: ($json.need_phone_lookup ? $json.phone : \"zz-no-query\"), gl: \"us\", num: 5 }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "375e9b63-e95b-4320-a0f8-c422273f6bba",
+      "name": "Enrich City + Address",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        512
+      ],
+      "parameters": {
+        "jsCode": "const base = $('Layer 4 GBP Check + Queries').item.json;\nlet city = String(base.city || '').trim();\nlet address = String(base.address || '').trim();\nlet filled = [];\ntry {\n  const s = $('Phone Lookup Search').item.json;\n  const cand = [];\n  if (s.knowledgeGraph && s.knowledgeGraph.address) cand.push(String(s.knowledgeGraph.address));\n  const places = Array.isArray(s.places) ? s.places : [];\n  for (const p of places) { if (p && p.address) cand.push(String(p.address)); }\n  for (const cand0 of cand) {\n    const parts = cand0.split(',').map(x => x.trim()).filter(Boolean);\n    const stIdx = parts.findIndex(p => /^[A-Z]{2}(\\s+\\d{5}(-\\d{4})?)?$/.test(p));\n    if (stIdx > 0) {\n      if (!city) { city = parts[stIdx - 1]; filled.push('city from phone lookup'); }\n      if (!address) { address = parts.slice(0, stIdx + 1).join(', '); filled.push('address from phone lookup'); }\n      break;\n    }\n  }\n} catch (e) {}\nconst shortName = String(base.business_name || '').trim().split(/\\s+/).slice(0, 2).join(' ');\nconst q = s => '\"' + s + '\"';\nconst q2 = (base.business_name && city) ? q(base.business_name + ' ' + city + ' VA') : '';\nconst q5 = (address && shortName) ? q(address) + ' ' + q(shortName) : '';\nreturn [{ json: Object.assign({}, base, { city: city, address: address, q2: q2, q5: q5, geo_filled: filled.join('; ') }) }];"
+      }
+    },
+    {
+      "id": "91c0dfb1-0734-47d4-a9db-f9768c4be71f",
+      "name": "Search Q1 Name",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1248,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ q: ($(\"Layer 4 GBP Check + Queries\").item.json.q1 || \"zz-no-query\"), gl: \"us\", num: 10 }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "270c6cf8-15d0-4619-b984-da64a69cce64",
+      "name": "Search Q2 Name City",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1472,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ q: ($(\"Layer 4 GBP Check + Queries\").item.json.q2 || \"zz-no-query\"), gl: \"us\", num: 10 }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "0090523f-7bb2-4372-817f-f3830661169a",
+      "name": "Search Q3 Name State",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1696,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ q: ($(\"Layer 4 GBP Check + Queries\").item.json.q3 || \"zz-no-query\"), gl: \"us\", num: 10 }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "de14e904-e542-4027-be4f-f08863443780",
+      "name": "Search Q4 Phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1920,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ q: ($(\"Layer 4 GBP Check + Queries\").item.json.q4 || \"zz-no-query\"), gl: \"us\", num: 10 }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "b3661dc3-29d2-4dae-8db9-d6ebff7ce203",
+      "name": "Search Q5 Address",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2144,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ q: ($(\"Layer 4 GBP Check + Queries\").item.json.q5 || \"zz-no-query\"), gl: \"us\", num: 10 }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "4efc28a2-8e45-4364-8cd7-fe4e3b2f36fd",
+      "name": "Search Q6 Social",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2368,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ q: ($(\"Layer 4 GBP Check + Queries\").item.json.q6 || \"zz-no-query\"), gl: \"us\", num: 10 }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "cecaa326-42f1-4b3f-90b1-4ec94b29954b",
+      "name": "Search Q7 Directories",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2592,
+        320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({ q: ($(\"Layer 4 GBP Check + Queries\").item.json.q7 || \"zz-no-query\"), gl: \"us\", num: 10 }) }}",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ea415025-2b23-4615-b47d-9cb6af712ed7",
+      "name": "Collect Results + Domain Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2816,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const lead = $('Enrich City + Address').item.json;\nconst fetchNode = (n) => { try { return $(n).item.json; } catch (e) { return { __error: true }; } };\nconst isErr = j => !j || j.__error || j.error || j.errorMessage;\nconst s1 = fetchNode('Search Q1 Name');\nconst s2 = fetchNode('Search Q2 Name City');\nconst s3 = fetchNode('Search Q3 Name State');\nconst s4 = fetchNode('Search Q4 Phone');\nconst s5 = fetchNode('Search Q5 Address');\nconst s6 = fetchNode('Search Q6 Social');\nconst s7 = fetchNode('Search Q7 Directories');\nconst err_q1 = lead.q1 ? isErr(s1) : false;\nconst err_q2 = lead.q2 ? isErr(s2) : false;\nconst err_q4 = lead.q4 ? isErr(s4) : false;\nconst results = [];\nfor (const s of [s1,s2,s3,s4,s5,s6,s7]) {\n  if (isErr(s)) continue;\n  const org = Array.isArray(s.organic) ? s.organic : [];\n  for (const o of org.slice(0, 10)) {\n    results.push({ link: o.link || '', title: o.title || '', snippet: o.snippet || '' });\n  }\n}\nconst DIRECTORY = ['facebook.com','instagram.com','yelp.com','nextdoor.com','linktr.ee','sites.google.com','business.site','angi.com','homeadvisor.com','thumbtack.com','houzz.com','bbb.org','yellowpages.com','porch.com','mapquest.com','google.com','linkedin.com','x.com','twitter.com','tiktok.com','manta.com','chamberofcommerce.com'];\nconst isRealDomain = (url) => {\n  if (!url) return false;\n  let u = String(url).trim();\n  if (!/^https?:\\/\\//i.test(u)) u = 'https://' + u;\n  let host;\n  try { host = new URL(u).hostname.toLowerCase(); } catch (e) { return false; }\n  if (!host || !host.includes('.')) return false;\n  return !DIRECTORY.some(d => host === d || host.endsWith('.' + d));\n};\nlet kgReject = '';\nlet kgUrl = '';\nfor (const s of [s1,s2,s3]) {\n  if (isErr(s)) continue;\n  if (s.knowledgeGraph && isRealDomain(s.knowledgeGraph.website)) { kgReject = 'Website linked through Google Business Profile'; kgUrl = s.knowledgeGraph.website; }\n  const places = Array.isArray(s.places) ? s.places : [];\n  for (const p of places) { if (p && isRealDomain(p.website)) { kgReject = 'Website linked through Google Business Profile'; kgUrl = p.website; } }\n}\nconst TRADE = ['llc','inc','co','services','service','company','the','and','of'];\nconst rawWords = String(lead.business_name || '').toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(w => w && TRADE.indexOf(w) === -1);\nconst city = String(lead.city || '').toLowerCase().replace(/[^a-z0-9]/g, '');\nconst joined = rawWords.join('');\nconst hyphenated = rawWords.join('-');\nconst initials = rawWords.map(w => w[0]).join('');\nconst firstTwo = rawWords.slice(0, 2).join('');\nconst tradeWord = rawWords.length > 1 ? rawWords[rawWords.length - 1] : '';\nconst bases = [];\nconst push = b => { if (b && b.length > 1 && bases.indexOf(b) === -1) bases.push(b); };\npush(joined); push(hyphenated);\nif (city) { push(joined + city); push(joined + '-' + city); }\npush(joined + 'va'); push(joined + '-va');\nif (tradeWord && initials) push(initials + tradeWord);\nif (firstTwo && firstTwo !== joined) push(firstTwo);\nconst tlds = ['.com', '.net', '.biz', '.us', '.co'];\nconst domains = [];\nfor (const b of bases) { for (const t of tlds) { if (domains.length < 20) domains.push(b + t); } }\nconst distinctive = rawWords.filter(w => w.length > 3).slice(0, 4);\nreturn [{ json: Object.assign({}, lead, {\n  hard_reject: lead.hard_reject || kgReject,\n  website_found_url: lead.website_found_url || kgUrl,\n  search_results: JSON.stringify(results).slice(0, 12000),\n  result_count: results.length,\n  err_q1: err_q1, err_q2: err_q2, err_q4: err_q4,\n  candidate_domains: domains,\n  domain_probe_count: domains.length,\n  distinctive_words: distinctive,\n  phone_tail: String(lead.phone || '').replace(/\\D/g, '').slice(-7)\n}) }];"
+      }
+    },
+    {
+      "id": "f63f9766-109d-4cdd-a592-6cc4f1197410",
+      "name": "Split Domain List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3040,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const lead = $json;\nconst out = [];\nfor (const d of (lead.candidate_domains || [])) {\n  out.push({ json: { domain: d } });\n}\nif (!out.length) out.push({ json: { domain: '' } });\nreturn out;"
+      }
+    },
+    {
+      "id": "0ed3a04b-fe29-45d5-979f-1f0a80960bf4",
+      "name": "Probe Candidate Domains",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        3264,
+        320
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.domain ? \"https://\" + $json.domain : \"https://zz-no-domain.invalid\" }}",
+        "options": {
+          "timeout": 5000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "2149d920-cdb3-4717-b14c-aca9f25a1d72",
+      "name": "Domain Match Verdict",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3488,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const lead = $('Collect Results + Domain Candidates').item.json;\nconst reqDomains = $('Split Domain List').all().map(i => i.json.domain);\nconst probes = $input.all().map(i => (i && i.json) ? i.json : {});\nconst PARKED = ['domain is for sale','buy this domain','parked','sedo','hugedomains','afternic','dan.com','this domain may be for sale'];\nlet domainReject = '';\nlet domainUrl = '';\nconst summary = [];\nfor (let k = 0; k < probes.length; k++) {\n  const p = probes[k];\n  const req = reqDomains[k] || '';\n  const status = p.statusCode || 0;\n  const body = String(p.body || '').toLowerCase().slice(0, 300000);\n  if (!req || status !== 200 || !body) continue;\n  if (PARKED.some(t => body.indexOf(t) !== -1)) { summary.push(req + ' parked/for-sale'); continue; }\n  const words = (lead.distinctive_words || []);\n  const hits = words.filter(w => body.indexOf(w) !== -1).length;\n  const phoneHit = lead.phone_tail && lead.phone_tail.length === 7 && body.indexOf(lead.phone_tail) !== -1;\n  if (hits >= 2 || phoneHit) { domainReject = 'Website found through domain search'; domainUrl = 'https://' + req; }\n  summary.push(req + ' live, ' + hits + ' word hits' + (phoneHit ? ', phone match' : ''));\n}\nreturn [{ json: Object.assign({}, lead, {\n  hard_reject: lead.hard_reject || domainReject,\n  website_found_url: lead.website_found_url || domainUrl,\n  domain_summary: summary.join('; ') || 'no candidate domains resolved'\n}) }];"
+      }
+    },
+    {
+      "id": "cca62a1e-6c91-443b-8208-1ed532cb75f3",
+      "name": "AI Website Judge",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        3712,
+        320
+      ],
+      "parameters": {
+        "resource": "text",
+        "operation": "message",
+        "modelId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "claude-haiku-4-5-20251001"
+        },
+        "messages": {
+          "values": [
+            {
+              "role": "user",
+              "content": "={{ \"Business: \" + $json.business_name + \"\\nCity: \" + ($json.city || \"\") + \", \" + ($json.state || \"\") + \"\\nPhone: \" + ($json.phone || \"\") + \"\\nAddress: \" + ($json.address || \"\") + \"\\nCategory: \" + ($json.category || \"\") + \"\\n\\nSearch results (link | title | snippet):\\n\" + $json.search_results + \"\\n\\nDomain probe summary:\\n\" + $json.domain_summary }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 600,
+          "system": "You audit whether a local contractor has ANY website of its own. A website is any domain or subdomain the business controls or that is dedicated to it, including Wix, Squarespace, GoDaddy, WordPress, Weebly, Jobber or Housecall Pro booking pages, franchise location pages, one page sites, broken or outdated sites. Directories (Yelp, Angi, HomeAdvisor, BBB, Thumbtack, Porch, Houzz, Nextdoor, YellowPages, Manta, MapQuest, Chamber listings), social profiles and news articles are NOT websites, but if a directory or social snippet mentions or links an external website for this business, that counts as website found. Be strict: if unsure whether a site belongs to this business, treat it as a website. Return JSON only with keys website_found (bool), website_url, reject_reason (one of: Website found, Website linked through directory, Website linked through social profile, Website linked through Google Business Profile, Website found through domain search, or empty), confidence_no_website (0 to 100), notes (one short line)."
+        }
+      }
+    },
+    {
+      "id": "ed76fecb-c18a-4393-8ae2-b19f233a0d4c",
+      "name": "Scoring + Verdict",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3936,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const lead = $('Domain Match Verdict').item.json;\nlet ai = { website_found: false, website_url: '', reject_reason: '', confidence_no_website: 0, notes: '' };\ntry {\n  const j = $json;\n  let text = '';\n  if (typeof j.content === 'string') text = j.content;\n  else if (Array.isArray(j.content)) text = j.content.map(b => (b && b.text) ? b.text : '').join(' ');\n  else if (typeof j.text === 'string') text = j.text;\n  const m = text.match(/\\{[\\s\\S]*\\}/);\n  if (m) {\n    const parsed = JSON.parse(m[0]);\n    ai = {\n      website_found: !!parsed.website_found,\n      website_url: parsed.website_url || '',\n      reject_reason: parsed.reject_reason || '',\n      confidence_no_website: Number(parsed.confidence_no_website) || 0,\n      notes: String(parsed.notes || '').slice(0, 200)\n    };\n  }\n} catch (e) { ai.confidence_no_website = 0; }\nlet score = ai.confidence_no_website;\nconst hardReject = lead.hard_reject || '';\nif (hardReject || ai.website_found) score = 0;\nif (lead.err_q1) score -= 10;\nif (lead.err_q2) score -= 10;\nif (lead.err_q4) score -= 10;\nif (!lead.phone) score -= 5;\nconst TRADE_WORDS = ['handyman','services','service','construction','roofing','home','repair','llc','contracting','remodeling','plumbing','electric','electrical','hvac','painting','landscaping','company','co','inc','the','solutions','pros','builders','carpentry','fencing','decking','gutters','siding','concrete','excavating'];\nconst nameWords = String(lead.business_name || '').toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(Boolean);\nconst generic = nameWords.length <= 2 && nameWords.every(w => TRADE_WORDS.indexOf(w) !== -1);\nif (generic) score -= 5;\nscore = Math.max(0, Math.min(100, score));\nconst approved = !ai.website_found && !hardReject && score >= 95;\nconst review = !ai.website_found && !hardReject && !approved && score >= 90;\nconst reject_reason = hardReject || ai.reject_reason || (ai.website_found ? 'Website found' : 'Confidence below 95');\nconst website_found = (ai.website_found || hardReject) ? (lead.website_found_url || ai.website_url || '') : '';\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });\nconst notes = approved\n  ? ['Google name search checked','Phone search checked','Address search checked','GBP checked','Directory scan complete','Social scan complete','Domain discovery complete (' + lead.domain_probe_count + ' domains)','No website found','AI confidence ' + ai.confidence_no_website + (ai.notes ? ' - ' + ai.notes : '')].join('; ')\n  : review\n  ? 'REVIEW: ' + reject_reason + '; No website found in any layer; ' + ['Google name search checked','Phone search checked','Address search checked','GBP checked','Directory scan complete','Social scan complete','Domain discovery complete (' + lead.domain_probe_count + ' domains)','AI confidence ' + ai.confidence_no_website + (ai.notes ? ' - ' + ai.notes : '')].join('; ')\n  : 'REJECTED: ' + reject_reason + (website_found ? ' -> ' + website_found : '') + (ai.notes ? ' - ' + ai.notes : '');\nreturn [{ json: Object.assign({}, lead, {\n  ai_website_found: ai.website_found || !!hardReject,\n  ai_confidence: ai.confidence_no_website,\n  final_status: approved ? 'approved' : (review ? 'review' : 'rejected'),\n  final_confidence: score,\n  final_reject_reason: approved ? '' : reject_reason,\n  final_website_found: website_found,\n  final_notes: notes,\n  checked_date: today\n}) }];"
+      }
+    },
+    {
+      "id": "79a75275-9a05-4e3b-b5a1-7931cb3fdfa6",
+      "name": "Update Verification Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4160,
+        320
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Verification"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $(\"Layer 4 GBP Check + Queries\").item.json.row_number }}",
+            "status": "={{ $(\"Scoring + Verdict\").item.json.final_status }}",
+            "confidence": "={{ $(\"Scoring + Verdict\").item.json.final_confidence }}",
+            "reject_reason": "={{ $(\"Scoring + Verdict\").item.json.final_reject_reason }}",
+            "website_found": "={{ $(\"Scoring + Verdict\").item.json.final_website_found }}",
+            "verification_notes": "={{ $(\"Scoring + Verdict\").item.json.final_notes }}",
+            "checked_date": "={{ $(\"Scoring + Verdict\").item.json.checked_date }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "confidence",
+              "displayName": "confidence",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reject_reason",
+              "displayName": "reject_reason",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website_found",
+              "displayName": "website_found",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "verification_notes",
+              "displayName": "verification_notes",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "checked_date",
+              "displayName": "checked_date",
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "9b83a0bd-e35b-43e5-9b96-78d46d14e0bb",
+      "name": "Route Approved Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4384,
+        224
+      ],
+      "parameters": {
+        "jsCode": "const lead = $('Scoring + Verdict').item.json;\nconst isApproved = lead.final_status === 'approved';\nconst isLikely = !isApproved && lead.final_status === 'review' && (Number(lead.final_confidence) || 0) >= 90;\nif (!isApproved && !isLikely) return [{ json: { action: 'none' } }];\nlet existing = [];\ntry { existing = String($('Dedupe Phones').first().json.existingPhones || '').split(','); } catch (e) {}\nconst d = String(lead.phone || '').replace(/\\D/g, '').slice(-10);\nif (d && existing.indexOf(d) !== -1) return [{ json: { action: 'duplicate' } }];\nconst owner = String(lead.owner || '').trim();\nif (isApproved && String(lead.email || '').trim()) {\n  return [{ json: { action: 'leads',\n    business_name: lead.business_name, category: lead.category, city: lead.city, phone: lead.phone,\n    email: lead.email, source: lead.source, added_date: lead.added_date || lead.checked_date,\n    site_status: 'none', site_notes: lead.final_notes } }];\n}\nreturn [{ json: { action: 'calllist',\n  business_name: lead.business_name, category: lead.category, city: lead.city, phone: lead.phone,\n  rating: lead.rating, reviews: lead.reviews, added_date: lead.added_date || lead.checked_date, source: lead.source,\n  notes: (isApproved ? 'VERIFIED no website, score ' : 'LIKELY no website, score ') + lead.final_confidence + ', ' + (lead.reviews || '0') + ' reviews' + (owner ? '. Ask for ' + owner : '') } }];"
+      }
+    },
+    {
+      "id": "47fcfe3f-a442-4b78-bdb6-e740825c7630",
+      "name": "Should Append?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4608,
+        224
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "leads",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "leads",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "calllist",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "calllist",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      }
+    },
+    {
+      "id": "2de52a56-e3f7-4eae-98e4-6c71a6c38841",
+      "name": "Has Email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4832,
+        224
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "leads",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "leads",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "60bce3d1-fea8-4507-a14d-bb5dbd5d64c8",
+      "name": "Append to Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5056,
+        400
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $(\"Route Approved Lead\").item.json.business_name }}",
+            "category": "={{ $(\"Route Approved Lead\").item.json.category }}",
+            "city": "={{ $(\"Route Approved Lead\").item.json.city }}",
+            "phone": "={{ $(\"Route Approved Lead\").item.json.phone }}",
+            "email": "={{ $(\"Route Approved Lead\").item.json.email }}",
+            "source": "={{ $(\"Route Approved Lead\").item.json.source }}",
+            "added_date": "={{ $(\"Route Approved Lead\").item.json.added_date }}",
+            "site_status": "={{ $(\"Route Approved Lead\").item.json.site_status }}",
+            "site_notes": "={{ $(\"Route Approved Lead\").item.json.site_notes }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "site_status",
+              "displayName": "site_status",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "site_notes",
+              "displayName": "site_notes",
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "9063c463-236d-4224-b679-eb5c0f4fc6df",
+      "name": "Loop Over Leads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        800,
+        704
+      ],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "id": "618d6c0a-3c09-44dd-b8a6-ffe7574ddf96",
+      "name": "Append to Call List",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5056,
+        608
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $(\"Route Approved Lead\").item.json.business_name }}",
+            "category": "={{ $(\"Route Approved Lead\").item.json.category }}",
+            "city": "={{ $(\"Route Approved Lead\").item.json.city }}",
+            "phone": "={{ $(\"Route Approved Lead\").item.json.phone }}",
+            "rating": "={{ $(\"Route Approved Lead\").item.json.rating }}",
+            "reviews": "={{ $(\"Route Approved Lead\").item.json.reviews }}",
+            "added_date": "={{ $(\"Route Approved Lead\").item.json.added_date }}",
+            "source": "={{ $(\"Route Approved Lead\").item.json.source }}",
+            "notes": "={{ $(\"Route Approved Lead\").item.json.notes }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d49d3813-2217-4851-b884-961b9479ff8d",
+      "name": "Reset Row to Pending (retry)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4384,
+        416
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Verification"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $(\"Layer 4 GBP Check + Queries\").item.json.row_number }}",
+            "status": "pending",
+            "verification_notes": "retry"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "verification_notes",
+              "displayName": "verification_notes",
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "c6a67bf2-97d9-4211-b265-acac1febd2a0",
+      "name": "Read Leads Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        496,
+        416
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "faf44425-f54e-41df-bddc-7be9e85d200e",
+      "name": "Dedupe Phones",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        512
+      ],
+      "parameters": {
+        "jsCode": "const leads = $('Read Leads Tab').all().map(i => i.json);\nlet calls = [];\ntry { calls = $('Read Call List Tab').all().map(i => i.json); } catch (e) { calls = []; }\nconst digits = v => String(v == null ? '' : v).replace(/\\D/g, '');\nconst phones = new Set();\nfor (const r of leads.concat(calls)) { const d = digits(r.phone); if (d.length >= 7) phones.add(d.slice(-10)); }\nreturn [{ json: { existingPhones: Array.from(phones).join(',') } }];"
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "737122b8-42f1-496b-a4b0-8e41f3425686",
+      "name": "Read Call List Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        496,
+        608
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "38c7c535-8caf-429a-a082-df1390c2e148",
+      "name": "Manual Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Every 5 min (24/7)": {
+      "main": [
+        [
+          {
+            "node": "Read Verification Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Verification Tab": {
+      "main": [
+        [
+          {
+            "node": "Pick First 20 Pending",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Leads Tab",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Call List Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick First 20 Pending": {
+      "main": [
+        [
+          {
+            "node": "Mark Rows Checking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Rows Checking": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Layer 4 GBP Check + Queries": {
+      "main": [
+        [
+          {
+            "node": "Phone Lookup Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Phone Lookup Search": {
+      "main": [
+        [
+          {
+            "node": "Enrich City + Address",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich City + Address": {
+      "main": [
+        [
+          {
+            "node": "Search Q1 Name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Q1 Name": {
+      "main": [
+        [
+          {
+            "node": "Search Q2 Name City",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Q2 Name City": {
+      "main": [
+        [
+          {
+            "node": "Search Q3 Name State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Q3 Name State": {
+      "main": [
+        [
+          {
+            "node": "Search Q4 Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Q4 Phone": {
+      "main": [
+        [
+          {
+            "node": "Search Q5 Address",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Q5 Address": {
+      "main": [
+        [
+          {
+            "node": "Search Q6 Social",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Q6 Social": {
+      "main": [
+        [
+          {
+            "node": "Search Q7 Directories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Q7 Directories": {
+      "main": [
+        [
+          {
+            "node": "Collect Results + Domain Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Results + Domain Candidates": {
+      "main": [
+        [
+          {
+            "node": "Split Domain List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Domain List": {
+      "main": [
+        [
+          {
+            "node": "Probe Candidate Domains",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Probe Candidate Domains": {
+      "main": [
+        [
+          {
+            "node": "Domain Match Verdict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Domain Match Verdict": {
+      "main": [
+        [
+          {
+            "node": "AI Website Judge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Website Judge": {
+      "main": [
+        [
+          {
+            "node": "Scoring + Verdict",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scoring + Verdict": {
+      "main": [
+        [
+          {
+            "node": "Update Verification Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Verification Row": {
+      "main": [
+        [
+          {
+            "node": "Route Approved Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reset Row to Pending (retry)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Approved Lead": {
+      "main": [
+        [
+          {
+            "node": "Should Append?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Append?": {
+      "main": [
+        [
+          {
+            "node": "Has Email?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Email?": {
+      "main": [
+        [
+          {
+            "node": "Append to Leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append to Call List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Leads": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Leads": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Layer 4 GBP Check + Queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Call List": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reset Row to Pending (retry)": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads Tab": {
+      "main": [
+        [
+          {
+            "node": "Dedupe Phones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Call List Tab": {
+      "main": [
+        [
+          {
+            "node": "Dedupe Phones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Run": {
+      "main": [
+        [
+          {
+            "node": "Read Verification Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {}
+}

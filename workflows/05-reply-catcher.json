@@ -1,0 +1,602 @@
+{
+  "name": "Reply Catcher",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 10,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "-from:me",
+          "readStatus": "both"
+        },
+        "options": {}
+      },
+      "id": "77275eb2-3da8-4803-b526-5ce7d1cb79fc",
+      "name": "New Reply Email",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {}
+      },
+      "id": "3ffe7b7a-a72c-4794-b767-12e5cfcf220a",
+      "name": "Read Leads Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        272,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract sender from the email, match against the Leads tab, classify the reply.\nconst email = $('New Reply Email').item.json;\nconst leads = $input.all();\n\n// Extract sender address from the From header, lowercase and trim.\nconst fromRaw = email.from; const fromHeader = (typeof fromRaw === 'string' ? fromRaw : ((fromRaw && fromRaw.value && fromRaw.value[0] && fromRaw.value[0].address) || (fromRaw && fromRaw.text) || email.From || '')).toString().toLowerCase();\nconst angleMatch = fromHeader.match(/<([^>]+)>/);\nconst sender = (angleMatch ? angleMatch[1] : fromHeader).trim();\nif (!sender || !sender.includes('@')) return []; // no parseable sender\n\nconst subject = (email.subject || '').toString();\nconst rawBody = (email.text || email.snippet || '').toString(); const body = rawBody.split(/\\n\\s*On [\\s\\S]{0,400}?wrote:/)[0].split(/\\r?\\n/).filter(l => !l.trim().startsWith('>')).join('\\n').split(/Not interested\\? Reply stop/i)[0];\nconst haystack = (subject + ' ' + body).toLowerCase();\n\n// 1) Bounce detection: system sender or bounce subject phrases\nconst bounceSenders = ['mailer-daemon', 'postmaster'];\nconst bounceSubjects = ['delivery status notification', 'undeliverable', 'mail delivery failed', 'address not found'];\nconst isBounce =\n  bounceSenders.some((s) => sender.includes(s)) ||\n  bounceSubjects.some((p) => subject.toLowerCase().includes(p));\n\nif (isBounce) {\n  // Extract the failed recipient address from the bounce body (first address that is not the sender/system)\n  const addrs = rawBody.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+.[A-Za-z]{2,}/g) || [];\n  const failed = addrs.find((a) => {\n    const la = a.toLowerCase();\n    return !la.includes('mailer-daemon') && !la.includes('postmaster') && la !== sender;\n  }) || '';\n  const failedEmail = failed.toLowerCase();\n  if (!failedEmail) return []; // cannot tell who bounced\n  let lead = null;\n  for (const item of leads) {\n    const e = (item.json.email || '').toString().trim().toLowerCase();\n    if (e && e === failedEmail) { lead = item.json; break; }\n  }\n  if (!lead) return []; // bounced address not in Leads\n  return [{ json: {\n    sender: failedEmail,\n    business_name: lead.business_name || '',\n    lead_email: failedEmail,\n    row_number: lead.row_number,\n    category: 'bounced',\n    new_status: 'bounced',\n    subject,\n    message_text: body.trim(),\n  } }];\n}\n\n// For non-bounces the sender must be a known lead\nlet lead = null;\nfor (const item of leads) {\n  const e = (item.json.email || '').toString().trim().toLowerCase();\n  if (e && e === sender) { lead = item.json; break; }\n}\nif (!lead) return []; // unknown sender: no-op\n\n// 2) Out of office: do nothing, do not mark replied\nconst oooWords = ['out of office', 'automatic reply', 'auto reply', 'on vacation', 'away until'];\nconst isOoo = oooWords.some((w) => haystack.includes(w));\n\n// 3) Unsubscribe / stop requests\nconst unsubWords = ['stop', 'unsubscribe', 'remove me', 'not interested', 'unsubscribe me', 'take me off', 'wrong person', \"don't email\", 'dont email', 'do not email'];\nconst isUnsub = unsubWords.some((w) => haystack.includes(w));\n\nconst category = isOoo ? 'ooo' : (isUnsub ? 'unsub' : 'replied');\n\nreturn [{ json: {\n  sender,\n  business_name: lead.business_name || '',\n  lead_email: sender,\n  row_number: lead.row_number,\n  category,\n  new_status: category === 'unsub' ? 'unsub' : (category === 'replied' ? 'replied' : ''),\n  subject,\n  message_text: body.trim(),\n} }];"
+      },
+      "id": "b51514b9-7339-4084-a601-b87c7b932bce",
+      "name": "Match Sender and Classify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cat-bounced",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "bounced",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cat-ooo",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "ooo",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cat-unsub",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "unsub",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cat-replied",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "replied",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "e27572bb-f5a7-4689-95b1-b5f5b760abe4",
+      "name": "Route by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        800,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "bounced"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f52c17c0-b22d-4c80-ad0f-ac2d6b8b95e1",
+      "name": "Mark Lead Bounced",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1024,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Count leads with status \"bounced\" whose last_sent is today. Runs once per bounce.\nconst leads = $('Read Leads Tab').all();\nconst bouncedInfo = $('Match Sender and Classify').item.json;\nconst today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)\nlet count = 0;\nfor (const item of leads) {\n  const j = item.json;\n  const st = (j.status || '').toString().trim().toLowerCase();\n  const ls = (j.last_sent || '').toString().trim();\n  if (st === 'bounced' && ls.startsWith(today)) count++;\n}\n// The just-marked bounce may not be reflected in the sheet snapshot yet — make sure it is counted.\nconst justMarked = (bouncedInfo.new_status || '') === 'bounced';\nconst alreadyCounted = leads.some((item) => {\n  const e = (item.json.email || '').toString().trim().toLowerCase();\n  const st = (item.json.status || '').toString().trim().toLowerCase();\n  const ls = (item.json.last_sent || '').toString().trim();\n  return e === bouncedInfo.lead_email && st === 'bounced' && ls.startsWith(today);\n});\nif (justMarked && !alreadyCounted) count++;\nreturn [{ json: { bounce_count_today: count, pause_needed: count >= 2, business_name: bouncedInfo.business_name, lead_email: bouncedInfo.lead_email } }];"
+      },
+      "id": "0241c73a-0415-411f-8ab2-3d82dc99e256",
+      "name": "Count Bounces Today",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pause-check",
+              "leftValue": "={{ $json.pause_needed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3103ec6d-5a78-4e25-a560-ce175733edf8",
+      "name": "Pause Needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Settings"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": 2,
+            "B": true
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "B",
+              "displayName": "B",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c8bf84b7-2fc3-42df-aa33-5375a5f58353",
+      "name": "Set Settings Pause Flag",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1696,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "Outreach auto paused",
+        "emailType": "text",
+        "message": "Outreach auto paused: 2+ bounces today. Check the list, then set Settings A2 to FALSE to resume.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "d905ba5b-fc70-4392-a509-33bf55b8e70a",
+      "name": "Notify Ron Auto Paused",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "unsub"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "03310e89-e3a3-47d9-921e-4eafbc9209b3",
+      "name": "Mark Lead Unsub",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1024,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "replied"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0b27eec7-0210-4e82-8824-e719bd967caf",
+      "name": "Mark Lead Replied",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1024,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "={{  $('Match Sender and Classify').item.json.business_name + ': ' + String($('Match Sender and Classify').item.json.message_text || '').replace(/\\s+/g, ' ').substring(0, 80)  }}",
+        "emailType": "text",
+        "message": "={{  $('Match Sender and Classify').item.json.business_name + ' (' + $('Match Sender and Classify').item.json.sender + ') replied:\\n\\n' + $('Match Sender and Classify').item.json.message_text  }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "cde331ec-20f0-4001-a749-23ecc8f335cf",
+      "name": "Notify Ron of Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "New Reply Email": {
+      "main": [
+        [
+          {
+            "node": "Read Leads Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads Tab": {
+      "main": [
+        [
+          {
+            "node": "Match Sender and Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Sender and Classify": {
+      "main": [
+        [
+          {
+            "node": "Route by Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Category": {
+      "main": [
+        [
+          {
+            "node": "Mark Lead Bounced",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [],
+        [
+          {
+            "node": "Mark Lead Unsub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Lead Replied",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Lead Bounced": {
+      "main": [
+        [
+          {
+            "node": "Count Bounces Today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Bounces Today": {
+      "main": [
+        [
+          {
+            "node": "Pause Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pause Needed": {
+      "main": [
+        [
+          {
+            "node": "Set Settings Pause Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Settings Pause Flag": {
+      "main": [
+        [
+          {
+            "node": "Notify Ron Auto Paused",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Lead Replied": {
+      "main": [
+        [
+          {
+            "node": "Notify Ron of Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {}
+}

@@ -1,0 +1,616 @@
+{
+  "name": "Import Leads",
+  "nodes": [
+    {
+      "id": "d48660c5-f529-48d7-b7d3-8fd7aab7a917",
+      "name": "New File in Leads Inbox",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "value": "YOUR_DRIVE_FOLDER_ID",
+          "mode": "list",
+          "cachedResultName": "Leads Inbox"
+        },
+        "event": "fileCreated",
+        "options": {}
+      }
+    },
+    {
+      "id": "d884e030-9bf3-4e3b-9c31-45355fac4417",
+      "name": "Download CSV",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        272,
+        128
+      ],
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1c81e411-1d7e-4cce-a5d4-9278b4840329",
+      "name": "Extract CSV Rows",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        496,
+        128
+      ],
+      "parameters": {
+        "options": {
+          "enableBOM": true,
+          "includeEmptyCells": false
+        }
+      }
+    },
+    {
+      "id": "5777b5b4-24df-45f4-88cf-ecda65c59ce3",
+      "name": "Read Leads Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        720,
+        128
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {}
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "6505a81b-50dc-4162-b08c-69bad084d68b",
+      "name": "Read Call List Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        944,
+        128
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        },
+        "options": {}
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "id": "7acd8e09-3c2c-4fae-a3a7-352506b6ca5f",
+      "name": "Dedup and Map Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        224
+      ],
+      "parameters": {
+        "jsCode": "// Dedup in one pass: email rows -> Leads if email not already in Leads;\n// no-email rows -> Call List if phone not already in Call List.\nconst csvRows = $('Extract CSV Rows').all();\nconst leadsRows = $('Read Leads Tab').all();\nconst callRows = $('Read Call List Tab').all();\n\nconst normPhone = (p) => (p == null ? '' : String(p).replace(/\\D+/g, ''));\nconst normEmail = (e) => (e == null ? '' : String(e).trim().toLowerCase());\nconst clean = (v) => (v == null ? '' : String(v).trim());\nconst firstNonEmpty = (...vals) => {\n  for (const v of vals) {\n    const s = clean(v);\n    if (s) return s;\n  }\n  return '';\n};\n\nconst firstEmail = (raw) => {\n  const s = clean(raw);\n  if (!s) return '';\n  const parts = s.split(/[;,\\s]+/);\n  for (const part of parts) {\n    const e = normEmail(part);\n    if (/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(e)) return e;\n  }\n  return '';\n};\n\nconst BAD_HOST = /(?:^|\\.)(facebook\\.com|mapquest\\.com|yelp\\.com|google\\.[a-z.]+)(?:[/?#]|$)/i;\nconst pickWebsite = (website, googleFirstUrl) => {\n  const w = clean(website);\n  if (w) return w;\n  const g = clean(googleFirstUrl);\n  if (!g) return '';\n  return BAD_HOST.test(g) ? '' : g;\n};\n\n// email rows dedupe against Leads only; phone rows against Call List only\nconst existingEmails = new Set();\nfor (const r of leadsRows) {\n  if (!r.json || Object.keys(r.json).length === 0) continue;\n  const e = normEmail(r.json.email);\n  if (e) existingEmails.add(e);\n}\nconst existingPhones = new Set();\nfor (const r of callRows) {\n  if (!r.json || Object.keys(r.json).length === 0) continue;\n  const p = normPhone(r.json.phone);\n  if (p) existingPhones.add(p);\n}\n\n// source column from the Drive file name\nconst fileName = clean($('New File in Leads Inbox').first().json.name);\nconst source = /apollo/i.test(fileName) ? 'apollo' : 'maps';\n\nconst today = new Date().toISOString().slice(0, 10);\nconst out = [];\nconst seenEmails = new Set();\nconst seenPhones = new Set();\nlet skipped = 0;\n\nfor (const row of csvRows) {\n  const j = row.json;\n  const email = firstEmail(firstNonEmpty(j.emails, j['emails/0'], j.email));\n  const phone = firstNonEmpty(j.phone_number, j.phone).replace(/\\s+/g, '').replace(/^\\+1/, '');\n  const phoneNorm = normPhone(phone);\n\n  if (email && email.endsWith('@facebook.com')) { skipped++; continue; }\n\n  if (email) {\n    // email row: dedupe on email against Leads only (do not check Call List)\n    if (existingEmails.has(email) || seenEmails.has(email)) { skipped++; continue; }\n  } else {\n    // no-email row: needs a phone not already in Call List\n    if (!phoneNorm || existingPhones.has(phoneNorm) || seenPhones.has(phoneNorm)) { skipped++; continue; }\n  }\n\n  if (email) seenEmails.add(email);\n  if (phoneNorm) seenPhones.add(phoneNorm);\n\n  const category = firstNonEmpty(j.business_category, j.categoryName).replace(/[_|]+/g, ' ').replace(/\\s+/g, ' ').trim();\n\n  const base = {\n    business_name: firstNonEmpty(j.name, j.title),\n    category,\n    city: clean(j.city),\n    phone,\n    website: pickWebsite(j.website, j.google_first_url),\n    rating: firstNonEmpty(j.review_score, j.totalScore),\n    reviews: clean(j.reviewsCount),\n    added_date: today,\n    source,\n  };\n\n  if (email) {\n    out.push({ json: { ...base,\n      email,\n      facebook: firstNonEmpty(j.facebook, j['facebooks/0']),\n      instagram: firstNonEmpty(j.instagram, j['instagrams/0']),\n      status: '',\n      last_sent: '',\n      dest: 'leads' } });\n  } else {\n    out.push({ json: { ...base, dest: 'calllist' } });\n  }\n}\n\nout.push({ json: { dest: 'summary', added_leads: out.filter(o => o.json.dest === 'leads').length, added_calllist: out.filter(o => o.json.dest === 'calllist').length, skipped, file_name: fileName } });\nreturn out;"
+      }
+    },
+    {
+      "id": "fa1443bc-bf15-494c-a4f5-9f929d9dae5b",
+      "name": "Route by Destination",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1024,
+        224
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "has-email",
+                    "leftValue": "={{ $json.dest }}",
+                    "rightValue": "leads",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Leads (has email)"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "no-email-has-phone",
+                    "leftValue": "={{ $json.dest }}",
+                    "rightValue": "calllist",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Call List (no email)"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "summary",
+                    "leftValue": "={{ $json.dest }}",
+                    "rightValue": "summary",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Summary"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "956fdbb9-da22-4f20-8ef7-758ef93e1293",
+      "name": "Append to Leads Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1248,
+        128
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.business_name }}",
+            "category": "={{ $json.category }}",
+            "city": "={{ $json.city }}",
+            "phone": "={{ $json.phone }}",
+            "email": "={{ $json.email }}",
+            "website": "={{ $json.website }}",
+            "rating": "={{ $json.rating }}",
+            "reviews": "={{ $json.reviews }}",
+            "facebook": "={{ $json.facebook }}",
+            "instagram": "={{ $json.instagram }}",
+            "status": "",
+            "last_sent": "",
+            "added_date": "={{ $json.added_date }}",
+            "source": "={{ $json.source }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "facebook",
+              "displayName": "facebook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instagram",
+              "displayName": "instagram",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_sent",
+              "displayName": "last_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "209a73b8-3250-4e94-b703-e4923844192c",
+      "name": "Append to Call List Tab",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1248,
+        320
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "RLD Leads"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.business_name }}",
+            "category": "={{ $json.category }}",
+            "city": "={{ $json.city }}",
+            "phone": "={{ $json.phone }}",
+            "website": "={{ $json.website }}",
+            "rating": "={{ $json.rating }}",
+            "reviews": "={{ $json.reviews }}",
+            "added_date": "={{ $json.added_date }}",
+            "source": "={{ $json.source }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "rating",
+              "displayName": "rating",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reviews",
+              "displayName": "reviews",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "New File in Leads Inbox": {
+      "main": [
+        [
+          {
+            "node": "Download CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download CSV": {
+      "main": [
+        [
+          {
+            "node": "Extract CSV Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract CSV Rows": {
+      "main": [
+        [
+          {
+            "node": "Read Leads Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads Tab": {
+      "main": [
+        [
+          {
+            "node": "Read Call List Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Call List Tab": {
+      "main": [
+        [
+          {
+            "node": "Dedup and Map Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup and Map Rows": {
+      "main": [
+        [
+          {
+            "node": "Route by Destination",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Destination": {
+      "main": [
+        [
+          {
+            "node": "Append to Leads Tab",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append to Call List Tab",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {}
+}

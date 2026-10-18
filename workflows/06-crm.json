@@ -1,0 +1,454 @@
+{
+  "name": "CRM",
+  "nodes": [
+    {
+      "id": "c7e50890-7e63-4c36-9f4a-c1593122f156",
+      "name": "Sync Every 2 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        224
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8,10,12,14,16,18,20 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "be033c93-3b80-4acb-8803-0543be445545",
+      "name": "Read Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        272,
+        352
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "3f225147-c355-4f5e-808b-8fe7bf3ac307",
+      "name": "Read Call List",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        496,
+        352
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Call List"
+        }
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "id": "e5cf5686-6bf4-45a1-9d5c-db463498f5c1",
+      "name": "Read Pipeline",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        720,
+        352
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Pipeline"
+        }
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "id": "cabb60cc-b65b-4425-b3a6-71bceb432142",
+      "name": "Find New Entries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        352
+      ],
+      "parameters": {
+        "jsCode": "const clean = (items) => items\n  .map((i) => i.json)\n  .filter((j) => j && Object.keys(j).length > 0 && Object.values(j).some((v) => v !== null && v !== undefined && String(v).trim() !== ''));\n\nconst leads = clean($('Read Leads').all());\nconst calls = clean($('Read Call List').all());\nconst pipeline = clean($('Read Pipeline').all());\n\nconst pipelineEmails = new Set(\n  pipeline.map((p) => String(p.email || '').trim().toLowerCase()).filter((e) => e !== '')\n);\nconst pipelinePhones = new Set(\n  pipeline.map((p) => String(p.phone || '').replace(/\\D/g, '')).filter((p) => p !== '')\n);\n\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });\nconst out = [];\n\nfor (const lead of leads) {\n  const email = String(lead.email || '').trim().toLowerCase();\n  const status = String(lead.status || '').trim().toLowerCase();\n  if (status === 'replied' && email !== '' && !pipelineEmails.has(email)) {\n    out.push({\n      business_name: String(lead.business_name || ''),\n      contact_name: String(lead.contact_name || ''),\n      phone: String(lead.phone || ''),\n      email: String(lead.email || '').trim(),\n      source: String(lead.source || ''),\n      stage: 'Replied',\n      owner: String(lead.owner || ''),\n      deal_value: String(lead.deal_value || ''),\n      next_action: 'Reply + send mockup',\n      next_action_date: today,\n      notes: String(lead.notes || ''),\n      added_date: today,\n      closed_date: '',\n    });\n    pipelineEmails.add(email);\n  }\n}\n\nfor (const call of calls) {\n  const phoneDigits = String(call.phone || '').replace(/\\D/g, '');\n  const outcome = String(call.outcome || '').trim().toLowerCase();\n  if (outcome === 'interested' && phoneDigits !== '' && !pipelinePhones.has(phoneDigits)) {\n    out.push({\n      business_name: String(call.business_name || ''),\n      contact_name: String(call.contact_name || ''),\n      phone: String(call.phone || ''),\n      email: String(call.email || '').trim(),\n      source: 'Call',\n      stage: 'Interested',\n      owner: String(call.owner || ''),\n      deal_value: '',\n      next_action: 'Build mockup + book call',\n      next_action_date: today,\n      notes: String(call.notes || ''),\n      added_date: today,\n      closed_date: '',\n    });\n    pipelinePhones.add(phoneDigits);\n  }\n}\n\nreturn out.map((j) => ({ json: j }));"
+      }
+    },
+    {
+      "id": "ab640263-57e5-46d7-a9b3-4807a3c67621",
+      "name": "Append to Pipeline",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1168,
+        352
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Pipeline"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "business_name": "={{ $json.business_name }}",
+            "contact_name": "={{ $json.contact_name }}",
+            "phone": "={{ $json.phone }}",
+            "email": "={{ $json.email }}",
+            "source": "={{ $json.source }}",
+            "stage": "={{ $json.stage }}",
+            "owner": "={{ $json.owner }}",
+            "deal_value": "={{ $json.deal_value }}",
+            "next_action": "={{ $json.next_action }}",
+            "next_action_date": "={{ $json.next_action_date }}",
+            "notes": "={{ $json.notes }}",
+            "added_date": "={{ $json.added_date }}",
+            "closed_date": "={{ $json.closed_date }}"
+          },
+          "schema": [
+            {
+              "id": "business_name",
+              "displayName": "business_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "stage",
+              "displayName": "stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "owner",
+              "displayName": "owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "deal_value",
+              "displayName": "deal_value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "next_action",
+              "displayName": "next_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "next_action_date",
+              "displayName": "next_action_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "added_date",
+              "displayName": "added_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "closed_date",
+              "displayName": "closed_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "cellFormat": "USER_ENTERED"
+        }
+      }
+    },
+    {
+      "id": "f3862f3d-7f82-46e5-b3ff-b6365cb7a57e",
+      "name": "Digest Weekdays 8AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        448
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "04b60ef4-b4bb-4787-ae4c-06037b5e7f45",
+      "name": "Read Pipeline for Digest",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        272,
+        576
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Pipeline"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "45e33190-6b36-4139-b393-f4a2bf5255f1",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        576
+      ],
+      "parameters": {
+        "jsCode": "const rows = $input.all()\n  .map((i) => i.json)\n  .filter((j) => j && Object.keys(j).length > 0 && Object.values(j).some((v) => v !== null && v !== undefined && String(v).trim() !== ''));\n\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });\n\nconst due = rows.filter((r) => {\n  const stage = String(r.stage || '').trim();\n  const nad = String(r.next_action_date || '').trim();\n  if (stage === 'Won' || stage === 'Lost') return false;\n  if (nad === '') return false;\n  const d = new Date(nad);\n  if (isNaN(d.getTime())) return false;\n  const ny = new Date(d.getTime() + (nad.length <= 10 ? 12 * 3600 * 1000 : 0));\n  return ny.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) === today;\n});\n\nif (due.length === 0) return [];\n\nconst esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst items = due.map((r) =>\n  '<li><strong>' + esc(r.business_name) + '</strong>'\n  + ' &mdash; Stage: ' + esc(r.stage)\n  + ' | Owner: ' + esc(r.owner)\n  + ' | Next action: ' + esc(r.next_action)\n  + ' | Phone: ' + esc(r.phone)\n  + '</li>'\n);\n\nconst html = '<h2>RLD follow-ups for ' + today + '</h2><ul>' + items.join('\\n') + '</ul>';\n\nreturn [{ json: { count: due.length, subject: 'RLD follow-ups today: ' + due.length, html } }];"
+      }
+    },
+    {
+      "id": "48ae2ac3-38f5-41f5-abed-5ca9e5b47192",
+      "name": "Send Digest Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        576
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "you@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {
+          "appendAttribution": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Sync Every 2 Hours": {
+      "main": [
+        [
+          {
+            "node": "Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Leads": {
+      "main": [
+        [
+          {
+            "node": "Read Call List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Call List": {
+      "main": [
+        [
+          {
+            "node": "Read Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Find New Entries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find New Entries": {
+      "main": [
+        [
+          {
+            "node": "Append to Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Digest Weekdays 8AM": {
+      "main": [
+        [
+          {
+            "node": "Read Pipeline for Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Pipeline for Digest": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Digest Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/New_York"
+  },
+  "staticData": null,
+  "pinData": {}
+}
