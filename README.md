@@ -12,7 +12,7 @@ I built it to run my own agency, [Ron Lenser Digital](https://www.ronlenserdigit
 
 57 seconds, silent. One fictional lead row travels through all six workflows. Every node, rule and column shown comes from these files. [Watch it](docs/outreach-engine.mp4) or [play it on the case study page](https://ronaldlenser.github.io/outreach-engine/). Editable Remotion source is in [film](film).
 
-![How it works](docs/overview.png)
+![How it works](docs/overview-v2.png)
 
 ## The six workflows
 
@@ -36,15 +36,15 @@ I built it to run my own agency, [Ron Lenser Digital](https://www.ronlenserdigit
 
 ## Under the hood
 
-![Sheet access and verification gates](docs/under-the-hood.png)
+![Sheet access and verification gates](docs/under-the-hood-v2.png)
 
 ### Verify Leads, node for node
 
-![Verify Leads canvas](docs/03-verify.png)
+![Verify Leads canvas](docs/03-verify-v2.png)
 
 ### Send Outreach, node for node
 
-![Send Outreach canvas](docs/04-outreach.png)
+![Send Outreach canvas](docs/04-outreach-v2.png)
 
 More canvases are in [docs](docs).
 
