@@ -1,9 +1,9 @@
 import { Easing, interpolate } from "remotion";
 
 /* ------------------------------------------------------------------
-   Design system for the Outreach Engine film.
+   Design system for the Lead Gen Automation film.
    Colors, type and motion all come from the project's case study page
-   (ronaldlenser.github.io/outreach-engine) so the film reads as the
+   (ronaldlenser.github.io/lead-gen-automation) so the film reads as the
    same product.
 ------------------------------------------------------------------- */
 
