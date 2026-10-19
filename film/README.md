@@ -1,14 +1,14 @@
-# Outreach Engine film
+# Lead Gen Automation film
 
-A 57 second, 1920×1080, 30 fps launch film for Outreach Engine, built in Remotion (React + TypeScript). It's silent and works without sound.
+A 57 second, 1920×1080, 30 fps launch film for Lead Gen Automation, built in Remotion (React + TypeScript). It's silent and works without sound.
 
 Concept: **One Row.** One fictional lead row travels through all six real n8n workflows. Its status cell (pending, checking, approved, sent_1, replied, then Pipeline) changes on screen, and each change cuts to the exact nodes that made it.
 
 ## Folder
 
 ```
-../docs/outreach-engine.mp4  rendered film (web version)
-../docs/film-thumbnail.jpg   poster frame
+out/lead-gen-automation.mp4      final render
+out/thumbnail.png            poster frame
 src/
   theme.ts                   colors, type scale, layout grid, easing, motion helpers
   timeline.ts                scene lengths + the global moments the sheet row changes
@@ -26,10 +26,9 @@ remotion.config.ts
 ## Preview and render
 
 ```bash
-cd film
 npm install
 npm run studio          # live preview at http://localhost:3000, scrub any frame
-npm run render          # writes out/outreach-engine.mp4
+npm run render          # writes out/lead-gen-automation.mp4
 npx remotion still src/index.ts OutreachEngine out/thumbnail.png --frame=1640
 ```
 
