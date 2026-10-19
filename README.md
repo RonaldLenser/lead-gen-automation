@@ -4,13 +4,13 @@ An n8n automation that runs lead generation and cold outreach on autopilot. Six 
 
 I built it to run my own agency, [Ron Lenser Digital](https://www.ronlenserdigital.com).
 
-**[See the full visual breakdown](https://ronaldlenser.github.io/lead-gen-automation/)**
+**[See the full visual breakdown](https://www.ronlenserdigital.com/work/lead-gen-automation)**
 
 ## The film
 
 [![Watch the 57 second film](docs/film-thumbnail-v2.jpg)](docs/lead-gen-automation.mp4)
 
-57 seconds, silent. One fictional lead row travels through all six workflows. Every node, rule and column shown comes from these files. [Watch it](docs/lead-gen-automation.mp4) or [play it on the case study page](https://ronaldlenser.github.io/lead-gen-automation/). Editable Remotion source is in [film](film).
+57 seconds, silent. One fictional lead row travels through all six workflows. Every node, rule and column shown comes from these files. [Watch it](docs/lead-gen-automation.mp4) or [play it on the case study page](https://www.ronlenserdigital.com/work/lead-gen-automation). Editable Remotion source is in [film](film).
 
 ![How it works](docs/overview-v2.png)
 
