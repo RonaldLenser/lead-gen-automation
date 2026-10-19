@@ -2,7 +2,7 @@
    FICTIONAL demo data. No real business, person or result.
    The values are shaped exactly like the columns the workflows write,
    and every rule/threshold shown in the film comes from the workflow
-   code (see /workflows in the rld-outreach-engine repo).
+   code (see /workflows in the lead-gen-automation repo).
 ------------------------------------------------------------------- */
 
 export const LEAD = {
