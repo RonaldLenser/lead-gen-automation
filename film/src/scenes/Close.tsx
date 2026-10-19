@@ -35,10 +35,10 @@ export const Close: React.FC = () => {
           6 WORKFLOWS · {total} NODES · N8N, CLAUDE, SHEETS, GMAIL
         </div>
         <div style={{ ...rise(f, 76, 22, 40), fontSize: T.display, fontWeight: 800, letterSpacing: "-0.045em", lineHeight: 0.95, marginTop: 24 }}>
-          Outreach Engine
+          Lead Gen Automation
         </div>
         <div style={{ ...rise(f, 92, 18), fontSize: 38, marginTop: 34, color: C.text }}>
-          See how it works: <span style={{ color: C.acc }}>ronaldlenser.github.io/outreach-engine</span>
+          See how it works: <span style={{ color: C.acc }}>ronaldlenser.github.io/lead-gen-automation</span>
         </div>
         <div style={{ ...rise(f, 104, 18), fontSize: 26, marginTop: 22, color: C.mute }}>Built by Ron Lenser · ronlenserdigital.com</div>
       </div>

@@ -10,10 +10,10 @@ export const Title: React.FC = () => {
   return (
     <div style={{ position: "absolute", left: 96, top: 210, right: 96, opacity: out }}>
       <div style={{ ...rise(f, 0, 16), fontFamily: F.mono, fontSize: T.label, letterSpacing: "0.16em", color: C.acc }}>
-        RLD OUTREACH ENGINE · N8N + CLAUDE + GOOGLE SHEETS
+        N8N · CLAUDE · GOOGLE SHEETS · GMAIL
       </div>
       <div style={{ ...rise(f, 6, 22, 40), fontSize: T.display, fontWeight: 800, letterSpacing: "-0.045em", lineHeight: 0.95, marginTop: 26 }}>
-        Outreach Engine
+        Lead Gen Automation
       </div>
       <div style={{ ...rise(f, 22, 20), fontSize: 40, lineHeight: 1.3, color: C.text, marginTop: 34, maxWidth: 1320, fontWeight: 450 }}>
         Six n8n workflows that find local businesses with no website, prove it, and start the conversation.
